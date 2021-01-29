@@ -93,8 +93,12 @@ let notify_new_miner me =
 
 exception Timeout
 
+(* Version avec kill, pas recommandé du tout !!!!
+(* 
+  Permet d'exécuter la fonction f dans un thread, si l'exécution dépasse le timeout, le thread est tué.
+  args permet de faire passé les arguments de la fonction f.
+*)
 let kill_thread_with_timeout timeout f args =
-  (* Permet d'exécuter la fonction f dans un thread, si l'exécution dépasse le timeout, le thread est tué *)
   let result = ref None in
   let finished = Condition.create () in
   let guard = Mutex.create () in
@@ -131,7 +135,31 @@ let kill_thread_with_timeout timeout f args =
     print_string "task complete";print_newline();
     Thread.kill wait;
     x
+*)
 
+
+(* 
+  Permet d'exécuter la fonction f dans un thread, si l'exécution dépasse le timeout, le thread est tué.
+  args permet de faire passé les arguments de la fonction f.
+*)
+let kill_thread_with_timeout timeout f args =
+
+    let old_handler = Sys.signal Sys.sigalrm
+      (Sys.Signal_handle (fun _ -> raise Timeout)) in
+      
+    let finish () =
+      let _ = Unix.alarm 0 in
+      let _ = Sys.signal Sys.sigalrm old_handler in
+      Thread.exit () in
+
+      let _ = Unix.alarm timeout in
+      f args;
+      finish ()
+
+
+(*
+    Fonction gérant les messages entrant pour le mineur
+*)
 let in_channel sc =
   print_string "Reception d'une connexion.";
   print_newline();
@@ -192,6 +220,9 @@ let in_channel sc =
   with End_of_file -> () 
 
 
+(*
+  Fonction permettant l'attente d'une connexion au serveur. Chaque nouvelle connexion crée un thread traitant la connexion.
+*)
 let serv_process (sock,addr) =
   bind sock addr;
     
@@ -200,11 +231,27 @@ let serv_process (sock,addr) =
     print_string "en attente de connexion ...";print_newline();
     let sc, _ = accept sock in
 
-    let treatlent_msg_with_timeout = kill_thread_with_timeout 5.0 in_channel in
-    let serveur_thread = Thread.create treatlent_msg_with_timeout sc in
-    ()
+    try
+      let treatlent_msg_with_timeout = kill_thread_with_timeout 5 in_channel in
+      let _ = Thread.create treatlent_msg_with_timeout sc in
+      ()
+    with
+    |Timeout -> print_string "timeout";print_newline();
   done
 
+let rec create_miner_server s1 my_addr =
+  try
+
+    let serveur_thread = Thread.create serv_process (s1, my_addr) in
+
+    while true do
+      let t = read_line() in
+      match t with
+      |"quit" -> kill serveur_thread;exit()
+      |x-> print_string x;print_newline()
+    done;
+  with
+  |Timeout -> create_miner_server s1 my_addr
 
 (* version parallèle du mineur*)
 let () =
@@ -224,14 +271,9 @@ let () =
   (* Notifie au mineur connecté qu'un nouveau mineur arrive et permet de récupéré sa liste de mineur *)
   notify_new_miner me;
 
-  let serveur_thread = Thread.create serv_process (s1, my_addr) in
-
-  while true do
-    let t = read_line() in
-    match t with
-    |"quit" -> kill serveur_thread;exit()
-    |x-> print_string x;print_newline()
-  done;
+  (* Lancement du mineur en tant que serveur. Le serveur est un thread qui se charge de recevoir des communications de l'extérieur *)
+  create_miner_server s1 my_addr
+  
 
 
 

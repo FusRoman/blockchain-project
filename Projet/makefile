@@ -3,7 +3,7 @@ BUILD = _build/
 EXEC = _exec/
 MINER = _miner/
 WALLER = _waller/
-LIB = -thread unix.cma threads.cma
+LIB = -I +threads unix.cma threads.cma
 
 all: miner_serv.exe waller.exe
 	clear
