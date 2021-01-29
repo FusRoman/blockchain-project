@@ -1,7 +1,9 @@
 open Unix
 open Thread
+open Condition
 open Miner
 open Command
+open Mutex
 
 
 
@@ -52,6 +54,7 @@ let port_miner = ref 0
 let set_ip_miner addr = ip_miner := addr
 let set_port_miner port = port_miner := port
 
+(* Liste des mineurs *)
 let (listminer : miner list ref) = ref []
 
 let notify_new_miner me =
@@ -88,23 +91,55 @@ let notify_new_miner me =
         end;
     close s
 
-let in_channel (sock,addr) = 
-  bind sock addr;
-    
-  listen sock 5;
-  while true do
+exception Timeout
 
-    print_string "en attente de connexion ...";print_newline();
-    let sc, _ = accept sock in
-    
-    print_string "Reception d'une connexion.";
-    print_newline();
-    
-    let in_chan = in_channel_of_descr sc in
-    let out_chan = out_channel_of_descr sc in
+let kill_thread_with_timeout timeout f args =
+  let result = ref None in
+  let finished = Condition.create () in
+  let guard = Mutex.create () in
 
-    try
-      let m = input_line in_chan in
+  let set x =
+    Mutex.lock guard;
+    result := Some x;
+    Mutex.unlock guard in
+
+  Mutex.lock guard;
+
+  let work () =
+    let x = f args in
+    set x;
+    Condition.signal finished in
+
+  let delay () =
+    Thread.delay timeout;
+    Condition.signal finished in
+
+  let task = Thread.create work () in
+  let wait = Thread.create delay () in
+  Condition.wait finished guard;
+  
+  match !result with
+  | None ->
+    print_string "kill task";print_newline();
+    Thread.kill task;
+    raise Timeout
+  | Some x ->
+    print_string "task complete";print_newline();
+    Thread.kill wait;
+    x
+
+let in_channel sc =
+  print_string "Reception d'une connexion.";
+  print_newline();
+
+  let in_chan = in_channel_of_descr sc in
+  let out_chan = out_channel_of_descr sc in
+
+  try
+    (* On receptionne un message sur le canal *)
+    let m = input_line in_chan in
+    begin
+      (* On traite la commande correspondant au message*)
       match serv_command_of_string m with
       |New_miner m ->
         ()
@@ -149,10 +184,22 @@ let in_channel (sock,addr) =
             print_newline();
           |_ -> ()
         end
-    with End_of_file -> ();
-    close sc;
-  done;
-  close sock
+    end
+  with End_of_file -> () 
+
+
+let serv_process (sock,addr) =
+  bind sock addr;
+    
+  listen sock 5;
+  while true do
+    print_string "en attente de connexion ...";print_newline();
+    let sc, _ = accept sock in
+
+    let treatlent_msg_with_timeout = kill_thread_with_timeout 5.0 in_channel in
+    let serveur_thread = Thread.create treatlent_msg_with_timeout sc in
+    ()
+  done
 
 
 (* version parallèle du mineur*)
@@ -173,7 +220,7 @@ let () =
   (* Notifie au mineur connecté qu'un nouveau mineur arrive et permet de récupéré sa liste de mineur *)
   notify_new_miner me;
 
-  let serveur_thread = create in_channel (s1, my_addr) in
+  let serveur_thread = Thread.create serv_process (s1, my_addr) in
 
   while true do
     let t = read_line() in
