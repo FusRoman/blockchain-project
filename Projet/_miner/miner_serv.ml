@@ -155,10 +155,6 @@ let in_channel (sock,addr) =
   close sock
 
 
-let safe_quit sock =
-  
-
-
 (* version parallèle du mineur*)
 let () =
   let speclist = [("-distant_ip", Arg.String set_ip_miner, " Spécifie l'adresse auquel le mineur doit se connecter");
