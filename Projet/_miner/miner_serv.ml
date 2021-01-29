@@ -94,10 +94,12 @@ let notify_new_miner me =
 exception Timeout
 
 let kill_thread_with_timeout timeout f args =
+  (* Permet d'exécuter la fonction f dans un thread, si l'exécution dépasse le timeout, le thread est tué *)
   let result = ref None in
   let finished = Condition.create () in
   let guard = Mutex.create () in
 
+  (* Permet au thread de modifié x sans problème de race condition *)
   let set x =
     Mutex.lock guard;
     result := Some x;
@@ -105,11 +107,13 @@ let kill_thread_with_timeout timeout f args =
 
   Mutex.lock guard;
 
+  (* On lance l'exécution de f puis on place la valeur de retour dans result. On lance le signal finished pour annoncé la fin de l'exécution *)
   let work () =
     let x = f args in
     set x;
     Condition.signal finished in
 
+  (* Fonction de délai, renvoit un signal finished quand le délai est dépassé *)
   let delay () =
     Thread.delay timeout;
     Condition.signal finished in
