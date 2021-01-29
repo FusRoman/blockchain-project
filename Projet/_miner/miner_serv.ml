@@ -36,7 +36,9 @@ let rec broadcast_miner lm message =
     let s = socket PF_INET SOCK_STREAM 0 in
     setsockopt s SO_REUSEADDR true;
     connect s (ADDR_INET(miner.addr, miner.port));
-
+    (*try 
+      connect s (ADDR_INET(miner.addr, miner.port));
+    with ECONNREFUSED -> broadcast_miner next message;*)
     (* On prépare le message à envoyer. Il s'agit du nouveau mineur à envoyé vers tous les autres *)
     let out_chan = out_channel_of_descr s in
 
@@ -164,6 +166,14 @@ let in_channel sc =
         (* On ajoute le nouveau mineur à notre liste *)
         listminer := m :: !listminer;
         print_string ("new list : "^string_of_listminer !listminer); print_newline()
+      |Disconnect_miner m -> 
+        print_string "Un mineur se déconnecte.";
+        print_newline();
+        print_string ("Il s'agit de " ^ (string_of_miner m));
+        print_newline();
+
+        listminer := List.filter((fun a -> a != m) !listminer);
+        print_string ("new list : "^string_of_listminer !listminer); print_newline()
       |Waller_message m ->
         print_string m;
         print_newline();
@@ -180,8 +190,16 @@ let in_channel sc =
             print_string ("Ma liste est maintenant : " ^ string_of_listminer !listminer);
             print_newline();
           |Waller_message m ->
-            print_string m;
+            print_string m
             print_newline();
+          |Disconnect_miner m -> 
+            print_string "Un mineur se déconnecte.";
+            print_newline();
+            print_string ("Il s'agit de " ^ (string_of_miner m));
+            print_newline();
+
+            listminer := List.filter((fun a -> a != m) !listminer);
+            print_string ("new list : "^string_of_listminer !listminer); print_newline()
           |_ -> ()
         end
     end
@@ -225,7 +243,10 @@ let () =
   while true do
     let t = read_line() in
     match t with
-    |"quit" -> kill serveur_thread;exit()
+    |"quit" -> try
+
+                  Thread.exit()
+               with 
     |x-> print_string x;print_newline()
   done;
 
