@@ -9,7 +9,8 @@
 *.cmxa
 
 # ocamlbuild working directory
-_build/
+Projet/_build/
+Projet/_exec/
 
 # ocamlbuild targets
 *.byte
@@ -20,7 +21,7 @@ setup.data
 setup.log
 
 # Merlin configuring file for Vim and Emacs
-.merlin
+Projet/.merlin
 
 # Dune generated files
 *.install
