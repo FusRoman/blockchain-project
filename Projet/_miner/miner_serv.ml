@@ -4,27 +4,30 @@ open Condition
 open Miner
 open Command
 open Mutex
+open Block
 
 
-
+(* L'adresse IP et le port du mineur courant *)
 let my_ip = ref "127.0.0.1"
 let my_port = ref 8000
 let set_my_ip ip = my_ip := ip
 let set_my_port port = my_port := port
+(* Permet d'initialiser le mineur courant *)
 let init_me ip port =
   let my_ip = match ip with
     |"" -> inet_addr_of_string "127.0.0.1"
     |x -> inet_addr_of_string x in
   {addr = my_ip; port}, ADDR_INET(my_ip,port)
 
-let rec add_list_without_double l1 l2 =
-  match l1 with
-    |[] -> l2
-    |x::next ->
-      if not (List.exists (fun current_miner -> x.addr == current_miner.addr && x.port == current_miner.port ) l2) then
-        add_list_without_double next (x :: l2)
-      else
-        add_list_without_double next l2
+
+(* Adresse IP et port du mineur auquel se connecté si le mineur n'est pas le premier *)
+let ip_miner = ref "127.0.0.1"
+let port_miner = ref 0
+let set_ip_miner addr = ip_miner := addr
+let set_port_miner port = port_miner := port
+
+(* Liste des mineurs *)
+let (listminer : miner list ref) = ref []
 
 
 let rec broadcast_miner lm message =
@@ -48,27 +51,23 @@ let rec broadcast_miner lm message =
     close s;
     broadcast_miner next message
 
-(* Adresse Ip et port du mineur auquel se connecté si le mineur n'est pas le premier *)
-let ip_miner = ref ""
-let port_miner = ref 0
-let set_ip_miner addr = ip_miner := addr
-let set_port_miner port = port_miner := port
-
-(* Liste des mineurs *)
-let (listminer : miner list ref) = ref []
-
 let notify_new_miner me =
   if !ip_miner != "" && !port_miner != 0 then
+    (* Si une IP et un port ont été indiqué en ligne de commande pour une connexion avec un autre mineur *)
     let s = socket PF_INET SOCK_STREAM 0 in
     setsockopt s SO_REUSEADDR true;
+
+    (* On se connecte au mineur distant et on ouvre un canal d'envoi et de reception *)
     connect s (ADDR_INET(inet_addr_of_string !ip_miner, !port_miner));
     let in_chan = in_channel_of_descr s in
     let out_chan = out_channel_of_descr s in
     
+    (* On envoie les informations du mineur courant vers le mineur connecté *)
     let m =  string_of_serv_command (Connected_miner me) in
     output_string out_chan (prepare_send_message m);
     flush out_chan;
 
+    (* On attend une réponse du mineur connecté *)
     let r = input_line in_chan in
     Format.printf "%s@." r;
     try
@@ -84,6 +83,8 @@ let notify_new_miner me =
         print_string "cm";print_newline();
       |Waller_message _ |Broadcast _ -> ();
       with ErrorMiner ->
+        (* Dans le cas où le message que l'on receptionne du mineur est vide, cela signifie que le mineur ne connait aucun autre mineur et qu'on est donc
+        le second mineur du système *)
         begin
           print_string "Je suis le deuxième mineur";print_newline();
           listminer := [{addr = inet_addr_of_string !ip_miner;port = !port_miner}];
@@ -91,85 +92,41 @@ let notify_new_miner me =
         end;
     close s
 
-exception Timeout
 
-(* Version avec kill, pas recommandé du tout !!!!
-(* 
-  Permet d'exécuter la fonction f dans un thread, si l'exécution dépasse le timeout, le thread est tué.
-  args permet de faire passé les arguments de la fonction f.
-*)
-let kill_thread_with_timeout timeout f args =
-  let result = ref None in
-  let finished = Condition.create () in
-  let guard = Mutex.create () in
-
-  (* Permet au thread de modifié x sans problème de race condition *)
-  let set x =
-    Mutex.lock guard;
-    result := Some x;
-    Mutex.unlock guard in
-
-  Mutex.lock guard;
-
-  (* On lance l'exécution de f puis on place la valeur de retour dans result. On lance le signal finished pour annoncé la fin de l'exécution *)
-  let work () =
-    let x = f args in
-    set x;
-    Condition.signal finished in
-
-  (* Fonction de délai, renvoit un signal finished quand le délai est dépassé *)
-  let delay () =
-    Thread.delay timeout;
-    Condition.signal finished in
-
-  let task = Thread.create work () in
-  let wait = Thread.create delay () in
-  Condition.wait finished guard;
-  
-  match !result with
-  | None ->
-    print_string "kill task";print_newline();
-    Thread.kill task;
-    raise Timeout
-  | Some x ->
-    print_string "task complete";print_newline();
-    Thread.kill wait;
-    x
-*)
-
-
-(* 
-  Permet d'exécuter la fonction f dans un thread, si l'exécution dépasse le timeout, le thread est tué.
-  args permet de faire passé les arguments de la fonction f.
-*)
-let kill_thread_with_timeout timeout f args =
-
-    let old_handler = Sys.signal Sys.sigalrm
-      (Sys.Signal_handle (fun _ -> raise Timeout)) in
-      
-    let finish () =
-      let _ = Unix.alarm 0 in
-      let _ = Sys.signal Sys.sigalrm old_handler in
-      Thread.exit () in
-
-      let _ = Unix.alarm timeout in
-      f args;
-      finish ()
-
+let global_accept_socket = ref (socket PF_INET SOCK_STREAM 0)
 
 (*
     Fonction gérant les messages entrant pour le mineur
 *)
-let in_channel sc =
+let receive_msg () =
+
+  let dont_kill_sock = ref false in
+
+  let kill_socket_after_timeout () =
+    (* Tentative pour tuer le thread si trop de temps d'attente pour une connexion
+       ça ne marche pas du tout *)
+    Thread.delay 5.0;
+    if !dont_kill_sock then
+      begin
+        close !global_accept_socket;
+        print_string "fin delay";print_newline()
+      end
+    else
+      Thread.exit() in
+
   print_string "Reception d'une connexion.";
   print_newline();
 
-  let in_chan = in_channel_of_descr sc in
-  let out_chan = out_channel_of_descr sc in
+  let in_chan = in_channel_of_descr !global_accept_socket in
+  let out_chan = out_channel_of_descr !global_accept_socket in
+  
+  let _ = Thread.create kill_socket_after_timeout () in
 
   try
     (* On receptionne un message sur le canal *)
+    dont_kill_sock := true;
     let m = input_line in_chan in
+    dont_kill_sock := false;
     begin
       (* On traite la commande correspondant au message*)
       match serv_command_of_string m with
@@ -177,7 +134,8 @@ let in_channel sc =
         ()
       |Recv_minerlist lm ->
         ();
-      |Connected_miner m -> 
+      |Connected_miner m ->
+        (* Connexion d'un nouveau mineur *)
         print_string "Un nouveau mineur se connecte.";
         print_newline();
         print_string ("Il s'agit de " ^ (string_of_miner m));
@@ -197,13 +155,16 @@ let in_channel sc =
         listminer := m :: !listminer;
         print_string ("new list : "^string_of_listminer !listminer); print_newline()
       |Waller_message m ->
+        (* Reception d'un message provenant d'un waller *)
         print_string m;
         print_newline();
         broadcast_miner !listminer (string_of_serv_command (Broadcast (Waller_message m)))
       |Broadcast m ->
+        (* Reception d'un message de broadcast *)
         begin
           match m with
           |New_miner mi ->
+            (* Un nouveau mineur a été broadcasté *)
             print_string "Reception d'un nouveau mineur";
             print_newline();
 
@@ -212,12 +173,15 @@ let in_channel sc =
             print_string ("Ma liste est maintenant : " ^ string_of_listminer !listminer);
             print_newline();
           |Waller_message m ->
+            (* Reception d'un message de waller broadcasté *)
             print_string m;
             print_newline();
           |_ -> ()
         end
     end
-  with End_of_file -> () 
+  with End_of_file ->
+    print_string "yes";print_newline();
+    Thread.exit()
 
 
 (*
@@ -230,28 +194,22 @@ let serv_process (sock,addr) =
   while true do
     print_string "en attente de connexion ...";print_newline();
     let sc, _ = accept sock in
-
-    try
-      let treatlent_msg_with_timeout = kill_thread_with_timeout 5 in_channel in
-      let _ = Thread.create treatlent_msg_with_timeout sc in
-      ()
-    with
-    |Timeout -> print_string "timeout";print_newline();
+    global_accept_socket := sc;
+    let _ = Thread.create receive_msg () in
+    ()
   done
 
 let rec create_miner_server s1 my_addr =
-  try
 
-    let serveur_thread = Thread.create serv_process (s1, my_addr) in
+  let serveur_thread = Thread.create serv_process (s1, my_addr) in
 
-    while true do
-      let t = read_line() in
-      match t with
-      |"quit" -> kill serveur_thread;exit()
-      |x-> print_string x;print_newline()
-    done;
-  with
-  |Timeout -> create_miner_server s1 my_addr
+  while true do
+    let t = read_line() in
+    match t with
+    |"quit" -> kill serveur_thread;exit()
+    |x-> print_string x;print_newline()
+  done
+
 
 (* version parallèle du mineur*)
 let () =
@@ -268,7 +226,7 @@ let () =
   let s1 = socket PF_INET SOCK_STREAM 0 in
   setsockopt s1 SO_REUSEADDR true;
 
-  (* Notifie au mineur connecté qu'un nouveau mineur arrive et permet de récupéré sa liste de mineur *)
+  (* Notifie au mineur connecté qu'un nouveau mineur arrive (le mineur courant) et permet de récupéré sa liste de mineur *)
   notify_new_miner me;
 
   (* Lancement du mineur en tant que serveur. Le serveur est un thread qui se charge de recevoir des communications de l'extérieur *)
