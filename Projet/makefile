@@ -30,7 +30,7 @@ command.cmo: _build miner.cmo
 
 # block rules
 block.cmo: _build
-	$(OC) -c $(LIB) $(MINER)block.ml
+	ocamlfind ocamlc -c $(LIB) -package zarith $(MINER)block.ml
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
 
 

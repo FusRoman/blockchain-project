@@ -3,6 +3,8 @@ open Marshal
 open Unix
 open Thread
 open Mutex
+open Z
+
 
 (* Version des block pour le projet *)
 type block = {m : string; id : int; mutable nonce : int; previous_hash: string; timestamp: float}
