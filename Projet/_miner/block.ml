@@ -14,7 +14,9 @@ let difficulty = 4
 
 let make_b i m = {m = m; nonce = ""; id = i}
 
+(*
 let verif_nonce hash =
+  (* 1er version moche de vérification du nonce *)
   let rec tmp_verif s i last_term =
     if i == difficulty && last_term == '0' then
       true
@@ -25,7 +27,13 @@ let verif_nonce hash =
       else
       false in
   tmp_verif hash 0 '0'
+  *)
 
+
+let verif_nonce hash =
+  let test = String.make difficulty '0' in
+  let head_hash = String.sub hash 0 difficulty in
+  test = head_hash
 
 let proof_of_work block =
   let init_length = String.length block.m in
@@ -60,18 +68,33 @@ let parallel_proof_of_work m =
       let h_block = Digest.string (Marshal.to_string current_block []) in
 
       let hexa_h = Digest.to_hex h_block in
-      if verif_nonce hexa_h then
+
+      Mutex.lock protect_block_find;
+      let value_block_find = !block_find in
+      Mutex.unlock protect_block_find;
+
+      if not value_block_find then
         begin
-          Mutex.lock protect_block_find;
-          current_block.nonce <- hexa_h;
-          res_block := current_block;
-          block_find := true;
-          print_string ("Thread " ^ string_of_int (Thread.id (Thread.self ())) ^ " a gagné");
-          print_newline();
-          Mutex.unlock protect_block_find
-        end
+          if verif_nonce hexa_h then
+            begin
+              (* Zone d'exclusion mutuelle :
+                  Un seul thread peut trouvé un block et peut donc modifié les propriétés du block
+                  de départ et annoncé au autre que le block a été trouvé *)
+              Mutex.lock protect_block_find;
+              current_block.nonce <- hexa_h;
+              res_block := current_block;
+              block_find := true;
+              print_string ("Thread " ^ string_of_int (Thread.id (Thread.self ())) ^ " a gagné");
+              print_newline();
+              print_string ("block trouvé : " ^ hexa_h);
+              print_newline();
+              Mutex.unlock protect_block_find
+            end
+          else
+            tmp_proof (i+2)
+        end 
       else
-        tmp_proof (i+2) in
+        exit() in
   
   let block_pair = Thread.create tmp_proof 0 in
   let block_impair = Thread.create tmp_proof 1 in
@@ -85,6 +108,7 @@ let blocks n =
   List.init n (fun i -> make_b i "blabla")
 
 let split_list l =
+  (* Conserve l'ordre des blocks *)
   let length_of_l = List.length l in
   let rec tmp_split l1 l2 origin_l i =
     match origin_l with
@@ -127,11 +151,12 @@ let hash_block b =
 
 
 let () =
-  let list_blocks = blocks 20 in
-  
-  (* minage d'une liste de block en parallèle *)
+(* minage d'une liste de block en parallèle *)
 
-  (*let block_list_mined = parallel_mining_block_list list_blocks in
+  (*let list_blocks = blocks 20 in
+  
+
+  let block_list_mined = parallel_mining_block_list list_blocks in
   
   List.iter (fun block ->
     print_int block.id;
@@ -140,15 +165,20 @@ let () =
     print_newline();
     print_string block.nonce;
     print_newline()
-    ) block_list_mined;*)
+    ) block_list_mined;
+    print_newline();
+    print_newline();*)
 
     (* minage d'un block en parallèle *)
 
-    let b = parallel_proof_of_work "blabla" in
+    let b = parallel_proof_of_work "blablatoto" in
     print_int b.id;
     print_newline();
     print_string b.m;
     print_newline();
     print_string b.nonce;
+    print_newline();
+    print_newline();
+
 
   ()
