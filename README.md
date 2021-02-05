@@ -16,7 +16,7 @@ Il est possible de lancer les exécutables depuis le make file, voici les comman
         make new_miner ARGS='-my_addr 127.0.0.1 8000'
 
     -Pour lancer un mineur qui se connecte à un autre mineur :
-        make new_miner ARGS='my_addr 127.0.0.1 8000 -distant_ip 127.0.0.1 -distant_port 8001'
+        make new_miner ARGS='my_addr 127.0.0.1 8000 -distant_miner 127.0.0.1 8001'
     
     -Pour lancer un waller:
         make new_waller ARGS='-miner_addr 127.0.0.1 8000'

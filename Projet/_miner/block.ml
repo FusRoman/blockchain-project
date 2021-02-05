@@ -4,30 +4,32 @@ open Unix
 open Thread
 open Mutex
 
+(* Version des block pour le projet *)
+type block = {m : string; id : int; mutable nonce : int; previous_hash: string; timestamp: float}
+
+
+let make_genesis m =
+  {m; nonce = 0; id = 0; previous_hash = ""; timestamp = time()}
+
+let make_block m id previous_hash =
+  {m = m^(string_of_int id); nonce = 0; id; previous_hash; timestamp = time()}
+
+let hash_block b =
+  Digest.string (Marshal.to_string b [])
+
+
+
+
 
 (* Version des block pour les exercices *)
 
+(*
 type block = {mutable m : string; mutable nonce : string; id : int}
 
 let difficulty = 4
 
 
 let make_b i m = {m = m; nonce = ""; id = i}
-
-(*
-let verif_nonce hash =
-  (* 1er version moche de vérification du nonce *)
-  let rec tmp_verif s i last_term =
-    if i == difficulty && last_term == '0' then
-      true
-    else
-      let current_digit = s.[i] in
-      if current_digit == '0' then
-        tmp_verif s (i+1) current_digit
-      else
-      false in
-  tmp_verif hash 0 '0'
-  *)
 
 
 let verif_nonce hash =
@@ -135,50 +137,35 @@ let parallel_mining_block_list lb =
   join mine_l2;
   List.concat [list_right; list_left]
 
-(* Version des block pour le projet *)
-(* type block = {m : string; id : int; mutable nonce : int; previous_hash: string; timestamp: float}
 
+let exo () =
+  (* minage d'une liste de block en parallèle *)
+  
+    (*let list_blocks = blocks 20 in
+    
+  
+    let block_list_mined = parallel_mining_block_list list_blocks in
+    
+    List.iter (fun block ->
+      print_int block.id;
+      print_newline();
+      print_string block.m;
+      print_newline();
+      print_string block.nonce;
+      print_newline()
+      ) block_list_mined;
+      print_newline();
+      print_newline();*)
+  
+      (* minage d'un block en parallèle *)
+  
+      let b = parallel_proof_of_work "blablatoto" in
+      print_int b.id;
+      print_newline();
+      print_string b.m;
+      print_newline();
+      print_string b.nonce;
+      print_newline();
+      print_newline()
 
-let make_genesis m =
-  {m; nonce = 0; id = 0; previous_hash = ""; timestamp = time()}
-
-let make_block m id previous_hash =
-  {m = m^(string_of_int id); nonce = 0; id; previous_hash; timestamp = time()}
-
-let hash_block b =
-  Digest.string (Marshal.to_string b [])
 *)
-
-
-let () =
-(* minage d'une liste de block en parallèle *)
-
-  (*let list_blocks = blocks 20 in
-  
-
-  let block_list_mined = parallel_mining_block_list list_blocks in
-  
-  List.iter (fun block ->
-    print_int block.id;
-    print_newline();
-    print_string block.m;
-    print_newline();
-    print_string block.nonce;
-    print_newline()
-    ) block_list_mined;
-    print_newline();
-    print_newline();*)
-
-    (* minage d'un block en parallèle *)
-
-    let b = parallel_proof_of_work "blablatoto" in
-    print_int b.id;
-    print_newline();
-    print_string b.m;
-    print_newline();
-    print_string b.nonce;
-    print_newline();
-    print_newline();
-
-
-  ()

@@ -168,7 +168,7 @@ let receive_msg sc =
                   print_newline();
                 |_ -> ()
             end;
-            
+
             Unix.shutdown sc Unix.SHUTDOWN_ALL
 
           with End_of_file ->
@@ -204,7 +204,7 @@ let rec create_miner_server s1 =
 
 
 let init_me () =
-
+  (* Permet d'initialisé les informations du mineur courant avec son adresse IP et son numéro de port *)
   let s1 = socket PF_INET SOCK_STREAM 0 in
   setsockopt s1 SO_REUSEADDR true;
 
@@ -213,6 +213,7 @@ let init_me () =
     |x -> inet_addr_of_string x in
 
   let rec test_port acc_port =
+    (* Permet de selectionné le premier port libre de la machine si celui indiqué est déjà pris *)
     let current_addr = ADDR_INET(my_ip,acc_port) in
     try
       bind s1 current_addr;

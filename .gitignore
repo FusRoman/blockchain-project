@@ -11,6 +11,8 @@
 # ocamlbuild working directory
 Projet/_build/
 Projet/_exec/
+Projet/Zarith
+Projet/gmp-6.2.1
 
 # ocamlbuild targets
 *.byte
