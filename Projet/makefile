@@ -3,6 +3,7 @@ BUILD = _build/
 EXEC = _exec/
 MINER = _miner/
 WALLER = _waller/
+UTILS = _utils/
 LIB = -I +threads -I +digest -I +marshal unix.cma threads.cma
 
 all: miner_serv.exe waller.exe
@@ -25,13 +26,13 @@ waller.exe: _build miner_serv.exe
 
 # command rules
 command.cmo: _build miner.cmo
-	$(OC) -c -I $(BUILD) $(WALLER)command.ml
-	mv $(WALLER)*.cmo $(WALLER)*.cmi $(BUILD)
+	$(OC) -c -I $(BUILD) $(UTILS)command.ml
+	mv $(UTILS)*.cmo $(UTILS)*.cmi $(BUILD)
 
 # block rules
 block.cmo: _build
-	ocamlfind ocamlc -c $(LIB) -package zarith $(MINER)block.ml
-	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
+	ocamlfind ocamlc -c $(LIB) -package zarith $(UTILS)block.ml
+	mv $(UTILS)*.cmo $(UTILS)*.cmi $(BUILD)
 
 
 # directories creation rules

@@ -1,10 +1,14 @@
 open Unix
 open Command
+open Arg
 
 let ip_miner = ref ""
 let port_miner = ref 0
 let set_ip_miner addr = ip_miner := addr
 let set_port_miner port = port_miner := port
+
+
+
 
 
 let () =
@@ -25,6 +29,6 @@ let () =
   let m =  read_line() in
   if m = "quit" then (close s1; exit 0);
 
-  let send_m = prepare_send_message (string_of_serv_command (Waller_message m)) in
+  let send_m = prepare_send_message (string_of_serv_command (Waller_message (Transaction m))) in
   output_string out_chan (send_m);
   flush out_chan

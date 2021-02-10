@@ -2,6 +2,32 @@ open Unix
 
 type miner = {addr : Unix.inet_addr; port : int}
 
+
+module MinerSet = Set.Make(
+  struct 
+    type t = miner
+    let compare m1 m2 =
+      if Unix.string_of_inet_addr m1.addr = Unix.string_of_inet_addr m2.addr && m1.port = m2.port then
+        1
+      else
+        -1 
+  end
+)
+
+(* Ensemble des mineurs *)
+let set_miner = ref MinerSet.empty
+
+(* L'adresse IP et le port du mineur courant *)
+let my_ip = ref "127.0.0.1"
+let my_port = ref 8000
+let set_my_ip ip = my_ip := ip
+let set_my_port port = my_port := port
+
+let exit_miner = ref false
+
+(* La représentation du mineur courant *)
+let me = ref {addr = (inet_addr_of_string "127.0.0.1"); port = 0}
+
 let string_of_miner m =
   "{" ^ string_of_inet_addr m.addr ^ ":" ^ string_of_int m.port ^ "}"
 
@@ -21,16 +47,19 @@ let mineur_of_string string_m =
     {addr;port}
   |_ -> raise ErrorMiner
 
-let string_of_listminer lm =
+
+let string_of_setminer () =
+  let miner_list = MinerSet.elements !set_miner in
   let rec rec_fun l acc = 
     match l with
     |[] -> acc
     |x :: [] -> acc ^ string_of_miner x
     |x :: y :: next ->
       rec_fun (y :: next) (acc ^ string_of_miner x ^ ",") in
-  rec_fun lm ""
+  rec_fun miner_list ""
 
-let listminer_of_string string_miner =
-  let split_listm = String.split_on_char ',' string_miner in
-  List.map (fun str_miner ->
-    mineur_of_string str_miner) split_listm
+let setminer_of_string string_miner =
+  let split_setm = String.split_on_char ',' string_miner in
+  List.fold_left (fun set_miner string_miner ->
+    MinerSet.add (mineur_of_string string_miner) set_miner) MinerSet.empty split_setm
+    
