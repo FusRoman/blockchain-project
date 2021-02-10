@@ -30,8 +30,9 @@ let connect_to_miner distant_miner =
       match received_command with
       |Recv_minerset lm ->
         (* On initialise notre liste avec la liste venant du mineur auquel nous sommes connecté. On y ajoute également le mineur auquel nous sommes connecté.*)
-        set_miner := MinerSet.union !set_miner lm;
-        set_miner := MinerSet.add {addr = inet_addr_of_string ip; port = int_of_string port} !set_miner
+        let filter = (MinerSet.filter (fun miner -> miner.addr != !me.addr && miner.port != !me.port) lm) in
+        set_miner := MinerSet.union !set_miner filter;
+        set_miner := MinerSet.add {addr = inet_addr_of_string ip; port = int_of_string port} !set_miner;
       |New_miner m ->
         print_string "nm";print_newline();
       |Connected_miner m ->
@@ -75,7 +76,7 @@ let properly_close sc =
     Fonction gérant les messages entrant pour le mineur
 *)
 let receive_msg sc =
-  match select [sc] [] [] 5.0 with
+  match select [sc] [] [] 10.0 with
   | [], [], [] -> properly_close sc
   | sc_list, [], [] ->
     begin
@@ -121,7 +122,8 @@ let receive_msg sc =
                   (* Un nouveau mineur a été broadcasté *)
 
                   (* Ajout du nouveau mineur à la liste *)
-                  set_miner := MinerSet.add mi !set_miner
+                  if mi.addr != !me.addr && mi.port != !me.port then
+                    set_miner := MinerSet.add mi !set_miner
                 |Waller_message m ->
                   (* Reception d'un message de waller broadcasté *)
                   let waller_msg = string_of_waller_command m in
@@ -143,68 +145,36 @@ let receive_msg sc =
 (*
   Fonction permettant l'attente d'une connexion au serveur. Chaque nouvelle connexion crée un thread traitant la connexion.
 *)
-  let rec serv_process sock =
-    listen sock 5;
-    match select [sock] [] [] (2.0) with
-    |[], [], [] ->
-      if !exit_miner then Thread.exit() else serv_process sock
-    |sc_list, [], [] ->
-      begin
-        if List.mem sock sc_list then
-        begin
-            let sc, _ = accept sock in
-            let _ = Thread.create receive_msg sc in
-            serv_process sock
-        end
-      end
-    |_, _, _ -> print_string "error"
+let rec serv_process sock =
+  listen sock 5;
+  while true do
+    let sc, _ = accept sock in
+    let _ = Thread.create receive_msg sc in
+    ()
+  done
 
-  let failwithf fmt = Printf.ksprintf (fun s -> print_string s) fmt
-  let s_ str = str
-  let f_ (str: ('a, 'b, 'c, 'd) format4) = str
-
-  let parse argv args =
-    (* Simulate command line for Arg *)
-    let current =
-      ref 0
-    in
-
-    try
-      Arg.parse_argv
-        ~current:current
-        (Array.concat [[|"none"|]; argv])
-        (Arg.align args)
-        (failwithf (f_ "Don't know what to do with arguments: '%s'"))
-        (s_ "configure options:")
-    with
-      | Arg.Help txt ->
-        print_endline txt
-      | Arg.Bad txt ->
-        prerr_endline txt
-      |Unix.Unix_error (error, ucommand, dir) -> print_string "Error : ";print_string (Unix.error_message error)
-
-let parse_line line =
+let command_behavior line =
   let listl = String.split_on_char ' ' line in
 
   let connect = ("-connect", Arg.String connect_to_miner, "   connexion à un mineur distant") in
   let exit = ("-exit", Arg.Set exit_miner, "  Termine le mineur" ) in
-  let show_miner = ("-show_miner", Arg.Unit (fun () -> print_string (string_of_setminer ())), "  Affiche la liste des mineurs connue") in
+  let show_miner = ("-show_miner", Arg.Unit (fun () -> print_string (string_of_setminer !set_miner)), "  Affiche la liste des mineurs connue") in
   let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_miner !me)), "  Affiche mes informations") in
   let clear = ("-clear", Arg.Unit (fun () -> let _ = Sys.command "clear" in ()), "  Supprime les affichages du terminal") in
 
   let speclist = [connect; exit; show_miner; show_me; clear] in
 
-  parse (Array.of_list listl) speclist;
+  parse_command (Array.of_list listl) speclist;
   print_newline ()
 
-let rec run_miner s1 =
+let run_miner s1 =
 
   let _ = Thread.create serv_process s1 in
 
-  while true do
+  while not !exit_miner do
     print_string ("miner@" ^ (string_of_miner !me) ^ ">");
     let line = read_line() in
-    parse_line line
+    command_behavior line
   done
 
 
@@ -232,8 +202,6 @@ let init_me () =
   me := {addr = my_ip; port = real_port};
   s1
 
-
-(* version parallèle du mineur*)
 let () =
   (* On parse les arguments en ligne de commande *)
   let exec_speclist = [("-my_addr", Arg.Tuple [Arg.String set_my_ip; Arg.Int set_my_port], " Spécifie l'adresse du mineur")] in

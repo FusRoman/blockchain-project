@@ -38,7 +38,7 @@ let rec waller_command_of_string string_wc =
 let rec string_of_serv_command sc =
   match sc with
   |New_miner m -> "new_miner-" ^ string_of_miner m
-  |Recv_minerset ml -> "recv_minerlist-" ^ string_of_setminer()
+  |Recv_minerset ml -> "recv_minerlist-" ^ string_of_setminer ml
   |Connected_miner m -> "connected_miner-" ^ string_of_miner m
   |Waller_message m -> "waller_message-" ^ (string_of_waller_command m)
   |Broadcast m -> "broadcast-" ^ string_of_serv_command m
@@ -64,7 +64,26 @@ let rec serv_command_of_string string_sc =
     end
   |_ -> raise ServCommandError
 
-(* Fonction à appeler dès que l'on souhaite envoyé une chaine de caractères par une socket.
-    Ajoute un \n à la fin du message pour que la fonction input_line puissent se débloquer*)
-let prepare_send_message m =
-  m ^ "\n"
+  let failwithf fmt = Printf.ksprintf (fun s -> print_string s) fmt
+  let s_ str = str
+  let f_ (str: ('a, 'b, 'c, 'd) format4) = str
+  
+  let parse_command argv args =
+    (* Simulate command line for Arg *)
+    let current =
+      ref 0
+    in
+  
+    try
+      Arg.parse_argv
+        ~current:current
+        (Array.concat [[|"none"|]; argv])
+        (Arg.align args)
+        (failwithf (f_ "Don't know what to do with arguments: '%s'"))
+        (s_ "configure options:")
+    with
+      | Arg.Help txt ->
+        print_endline txt
+      | Arg.Bad txt ->
+        prerr_endline txt
+      |Unix.Unix_error (error, ucommand, dir) -> print_string "Error : ";print_string (Unix.error_message error)

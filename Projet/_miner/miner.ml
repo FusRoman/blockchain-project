@@ -8,9 +8,11 @@ module MinerSet = Set.Make(
     type t = miner
     let compare m1 m2 =
       if Unix.string_of_inet_addr m1.addr = Unix.string_of_inet_addr m2.addr && m1.port = m2.port then
-        1
+        0
+      else if m1.port < m2.port then
+        -1
       else
-        -1 
+        1
   end
 )
 
@@ -48,8 +50,8 @@ let mineur_of_string string_m =
   |_ -> raise ErrorMiner
 
 
-let string_of_setminer () =
-  let miner_list = MinerSet.elements !set_miner in
+let string_of_setminer sm =
+  let miner_list = MinerSet.elements sm in
   let rec rec_fun l acc = 
     match l with
     |[] -> acc
