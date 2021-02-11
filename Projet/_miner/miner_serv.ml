@@ -7,7 +7,17 @@ open Mutex
 open Block
 open Cryptokit
 
-
+(* Cette fonction permet de créé un comportement de timeout sur une socket
+    -le premier paramètre est un n-uplet dont:
+        -timeout [float] -> permet de spécifier le temps en seconde du timeout
+        -working_function -> une fonction a appelé si le file descriptor sc reçoit des données en lecture avant le timeout
+        -args_work -> les arguments de la fonction working_function
+        -timeout_function -> une fonction a appelé si le timeout se déclenche, c'est a dire que le file descriptor sc n'a reçu aucune donnée en lecture 
+                                  durant la période du timeout
+        -args_timeout -> les arguments de la fonction timeout_function
+        -error_function -> une fonction a appelé en cas d'erreur quelconque 
+        -args_error -> les arguments de la fonction error_function
+    sc -> le file descriptor sur lequel sera mis en place le timeout *)
 let read_socket_timeout (timeout, working_function, args_work, timeout_function, args_timeout, error_function, args_error) sc =
   match select [sc] [] [] timeout with
   | [], [], [] ->  timeout_function args_timeout
@@ -51,7 +61,7 @@ let connect_to_miner distant_miner =
             print_string "nm";print_newline();
           |Connected_miner m ->
             print_string "cm";print_newline();
-          |Waller_message _ |Broadcast _ -> ();
+          |Transaction _ |Broadcast _ |Transac_proof _ -> ();
 
           
           shutdown s Unix.SHUTDOWN_ALL
@@ -120,12 +130,12 @@ let receive_msg sc =
 
       (* On ajoute le nouveau mineur à notre liste *)
       set_miner := MinerSet.add m !set_miner
-    |Waller_message m ->
+    |Transaction m ->
       (* Reception d'un message provenant d'un waller *)
-      let waller_msg = string_of_waller_command m in
-      print_string waller_msg;
+      print_string m;
       print_newline();
-      broadcast_miner (Broadcast (Waller_message m))
+      broadcast_miner (Broadcast (Transaction m))
+    |Transac_proof tp -> ()
     |Broadcast m ->
       begin
         (* Reception d'un message de broadcast *)
@@ -144,12 +154,11 @@ let receive_msg sc =
               (* Ajout du nouveau mineur à la liste si le nouveau mineur n'est pas déjà moi *)
               if mi.addr != !me.addr && mi.port != !me.port then
                 set_miner := MinerSet.add mi !set_miner
-            |Waller_message m ->
+            |Transaction m ->
               (* Reception d'un message de waller broadcasté *)
-              let waller_msg = string_of_waller_command m in
-              print_string waller_msg;
+              print_string m;
               print_newline();
-              broadcast_miner (Broadcast (Waller_message m))
+              broadcast_miner (Broadcast (Transaction m))
             |_ -> ()
           end
       end;
@@ -165,7 +174,9 @@ let rec serv_process sock =
 
   let server_handler sock =
     let sc,_ = accept sock in
+    (* On met en place un timeout de 10 seconde pour la reception d'un message sur la socket; au dela de 10 seconde, le thread est terminé *)
     let received_msg_handling = read_socket_timeout (10.0, receive_msg, sc, properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
+    (* On lance le thread chargé de traité le message entrant *)
     let _ = Thread.create received_msg_handling sc in
     serv_process sock in
   
@@ -173,8 +184,11 @@ let rec serv_process sock =
     set_msg_received := IntSet.empty;
     serv_process sock in
 
-  read_socket_timeout (60.0, server_handler, sock, server_timeout, sock, (fun () -> print_string "erreur sur le traitement du serveur"), ()) sock
+  (* On met en place un timeout de 4 seconde. Toute les 2 secondes, l'ensemble des messages reçu est remis à zéro *)
+  read_socket_timeout (4.0, server_handler, sock, server_timeout, sock, (fun () -> print_string "erreur sur le traitement du serveur"), ()) sock
 
+
+(* Fonction de débug permettant de tester des trucs dans l'environnement du mineur *)
 let debug () =
 
   let r1 = hash_string_to_zint "toto" in
@@ -183,8 +197,6 @@ let debug () =
   print_newline();
   Z.print r2
   
-
-
 
 let command_behavior line =
   let listl = String.split_on_char ' ' line in

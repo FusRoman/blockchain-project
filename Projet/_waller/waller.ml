@@ -25,26 +25,28 @@ let send_msg msg =
 
   connect s1 (ADDR_INET(inet_addr_of_string !ip_miner, !port_miner));
   let out_chan = out_channel_of_descr s1 in
-  output_value out_chan (Waller_message (Transaction msg));
+  output_value out_chan (Transaction msg);
   flush out_chan;
   shutdown s1 Unix.SHUTDOWN_ALL
 
+let debug () =
+  ()
 
 let command_behavior line =
   let listl = String.split_on_char ' ' line in
 
   let exit = ("-exit", Arg.Set exit_wallet, "  Termine le wallet" ) in
   let clear = ("-clear", Arg.Unit (fun () -> let _ = Sys.command "clear" in ()), "  Supprime les affichages du terminal") in
-  let connect = ("-connect_to", Arg.String set_distant_addr, " Initialise l'adresse d'un mineur distant, l'argument doit être de la forme ip:port") in
-  let send = ("-send", Arg.String send_msg, " Permet d'envoyer un message vers l'adresse spécifié par la commande -connect") in 
+  let connect = ("-connect", Arg.String set_distant_addr, " Initialise l'adresse d'un mineur distant, l'argument doit être de la forme ip:port") in
+  let send = ("-send", Arg.String send_msg, " Permet d'envoyer un message vers l'adresse spécifié par la commande -connect") in
+  let debug = ("-debug", Arg.Unit (fun () -> debug ()), "  Lance la fonction de débug") in
 
-  let speclist = [exit; clear; connect; send] in
+  let speclist = [exit; clear; connect; send; debug] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()
 
 let run_wallet () =
-
 
   while not !exit_wallet do
     let line = read_line() in
