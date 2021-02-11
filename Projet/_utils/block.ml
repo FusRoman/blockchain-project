@@ -1,9 +1,7 @@
-open Digest
-open Marshal
 open Unix
 open Thread
 open Mutex
-open Z
+open Cryptokit
 
 
 (* Version des block pour le projet *)
@@ -16,8 +14,18 @@ let make_genesis m =
 let make_block m id previous_hash =
   {m = m^(string_of_int id); nonce = 0; id; previous_hash; timestamp = time()}
 
-let hash_block b =
-  Digest.string (Marshal.to_string b [])
+
+let hash_string_to_zint m =
+  let sha256 = Hash.sha3 256 in
+  let to_hex = Hexa.encode() in
+  sha256#add_string m;
+  let hash = sha256#result in
+  to_hex#put_string hash;
+  to_hex#finish;
+  Z.of_string_base 16 to_hex#get_string
+
+
+
 
 
 

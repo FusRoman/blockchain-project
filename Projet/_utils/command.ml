@@ -20,11 +20,11 @@ exception ServCommandError
 
 let rec string_of_waller_command wc =
   match wc with
-  |Transaction s -> s
-  |Transac_proof sp -> sp
+  |Transaction s -> "transaction#" ^ s
+  |Transac_proof sp -> "transaction_proof#" ^ sp
 
 let rec waller_command_of_string string_wc =
-  let tmp = String.split_on_char '_' string_wc in
+  let tmp = String.split_on_char '#' string_wc in
   match tmp with
   |[x;y] ->
     begin

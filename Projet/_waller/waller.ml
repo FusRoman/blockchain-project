@@ -10,16 +10,16 @@ let set_port_miner port = port_miner := port
 let exit_wallet = ref false
 
 let set_distant_addr addr =
+
   let tmp_list = String.split_on_char ':' addr in
   match tmp_list with
   |[ip;port] ->
     ip_miner := ip;
     port_miner := int_of_string port;
-    print_string ("Vous êtes maintenant connecté a " ^ ip ^ ":" ^ port)
+    print_string ("Vous êtes maintenant connecté à " ^ ip ^ ":" ^ port)
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
 
 let send_msg msg =
-  print_string "send msg :";print_newline();
   let s1 = socket PF_INET SOCK_STREAM 0 in
   setsockopt s1 SO_REUSEADDR true;
 

@@ -1,8 +1,9 @@
 open Unix
+open Cryptokit
 
 type miner = {addr : Unix.inet_addr; port : int}
 
-
+(* création du module gérant l'ensemble des mineurs *)
 module MinerSet = Set.Make(
   struct 
     type t = miner
@@ -16,8 +17,19 @@ module MinerSet = Set.Make(
   end
 )
 
+(* création du module gérant l'ensemble des messages déjà reçu *)
+module IntSet = Set.Make(
+  struct
+    type t = Z.t
+    let compare = Z.compare
+  end
+)
+
 (* Ensemble des mineurs *)
 let set_miner = ref MinerSet.empty
+
+(* Ensemble des messages reçu par le mineur *)
+let set_msg_received = ref IntSet.empty
 
 (* L'adresse IP et le port du mineur courant *)
 let my_ip = ref "127.0.0.1"
@@ -36,7 +48,7 @@ let string_of_miner m =
 let strip_both_chars str =
   match String.length str with
     | 0 | 1 | 2 -> ""
-    | len -> String.sub str 1 (len - 2)
+    | str_len -> String.sub str 1 (str_len - 2)
 
 exception ErrorMiner
 let mineur_of_string string_m =
@@ -64,4 +76,7 @@ let setminer_of_string string_miner =
   let split_setm = String.split_on_char ',' string_miner in
   List.fold_left (fun set_miner string_miner ->
     MinerSet.add (mineur_of_string string_miner) set_miner) MinerSet.empty split_setm
+
+let already_received msg =
+  IntSet.mem msg !set_msg_received
     

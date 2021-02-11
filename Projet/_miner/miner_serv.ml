@@ -5,42 +5,57 @@ open Miner
 open Command
 open Mutex
 open Block
+open Cryptokit
+
+
+let read_socket_timeout (timeout, working_function, args_work, timeout_function, args_timeout, error_function, args_error) sc =
+  match select [sc] [] [] timeout with
+  | [], [], [] ->  timeout_function args_timeout
+  | sc_list, [], [] ->
+      if List.mem sc sc_list then
+        working_function args_work
+      else
+        error_function args_error
+  |_, _, _ -> error_function args_error
 
 let connect_to_miner distant_miner =
-
   match String.split_on_char ':' distant_miner with
   |[ip; port] ->
     begin
-      let s = socket PF_INET SOCK_STREAM 0 in
-      setsockopt s SO_REUSEADDR true;
+      (* Si l'adresse tapé n'est pas celle qui m'a été attribué *)
+      if int_of_string port != !me.port && ip != string_of_inet_addr !me.addr then
+        begin
+          let s = socket PF_INET SOCK_STREAM 0 in
+          setsockopt s SO_REUSEADDR true;
 
-      (* On se connecte au mineur distant et on ouvre un canal d'envoi et de reception *)
-      Unix.connect s (ADDR_INET(inet_addr_of_string ip, int_of_string port));
-      let in_chan = in_channel_of_descr s in
-      let out_chan = out_channel_of_descr s in
-      
-      (* On envoie les informations du mineur courant vers le mineur connecté *)
-      output_value out_chan (Connected_miner !me);
-      flush out_chan;
-      
+          (* On se connecte au mineur distant et on ouvre un canal d'envoi et de reception *)
+          Unix.connect s (ADDR_INET(inet_addr_of_string ip, int_of_string port));
+          let in_chan = in_channel_of_descr s in
+          let out_chan = out_channel_of_descr s in
+          
+          (* On envoie les informations du mineur courant vers le mineur connecté *)
+          output_value out_chan (Connected_miner !me);
+          flush out_chan;
+          
 
-      (* On attend une réponse du mineur connecté *)
-      let received_command = input_value in_chan in
+          (* On attend une réponse du mineur connecté *)
+          let received_command = input_value in_chan in
 
-      match received_command with
-      |Recv_minerset lm ->
-        (* On initialise notre liste avec la liste venant du mineur auquel nous sommes connecté. On y ajoute également le mineur auquel nous sommes connecté.*)
-        let filter = (MinerSet.filter (fun miner -> miner.addr != !me.addr && miner.port != !me.port) lm) in
-        set_miner := MinerSet.union !set_miner filter;
-        set_miner := MinerSet.add {addr = inet_addr_of_string ip; port = int_of_string port} !set_miner;
-      |New_miner m ->
-        print_string "nm";print_newline();
-      |Connected_miner m ->
-        print_string "cm";print_newline();
-      |Waller_message _ |Broadcast _ -> ();
+          match received_command with
+          |Recv_minerset lm ->
+            (* On initialise notre liste avec la liste venant du mineur auquel nous sommes connecté. On y ajoute également le mineur auquel nous sommes connecté.*)
+            let filter = (MinerSet.filter (fun miner -> miner.addr != !me.addr && miner.port != !me.port) lm) in
+            set_miner := MinerSet.union !set_miner filter;
+            set_miner := MinerSet.add {addr = inet_addr_of_string ip; port = int_of_string port} !set_miner;
+          |New_miner m ->
+            print_string "nm";print_newline();
+          |Connected_miner m ->
+            print_string "cm";print_newline();
+          |Waller_message _ |Broadcast _ -> ();
 
-      
-      shutdown s Unix.SHUTDOWN_ALL
+          
+          shutdown s Unix.SHUTDOWN_ALL
+        end
     end
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
 
@@ -48,21 +63,23 @@ let connect_to_miner distant_miner =
 
 let rec broadcast_miner message =
   (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
-  MinerSet.iter (fun miner -> 
-    (* On créé la socket puis on la connecte vers le mineur de la liste *)
-    let s = socket PF_INET SOCK_STREAM 0 in
-    setsockopt s SO_REUSEADDR true;
-    Unix.connect s (ADDR_INET(miner.addr, miner.port));
+  MinerSet.iter (fun miner ->
+      begin
+        (* On créé la socket puis on la connecte vers le mineur de la liste *)
+        let s = socket PF_INET SOCK_STREAM 0 in
+        setsockopt s SO_REUSEADDR true;
+        Unix.connect s (ADDR_INET(miner.addr, miner.port));
 
-    (* On prépare le message à envoyer. Il s'agit du nouveau mineur à envoyé vers tous les autres *)
-    let out_chan = out_channel_of_descr s in
+        (* On prépare le message à envoyer. Il s'agit du nouveau mineur à envoyé vers tous les autres *)
+        let out_chan = out_channel_of_descr s in
 
-    (* On envoie le message *)
-    output_value out_chan message;
-    flush out_chan;
+        (* On envoie le message *)
+        output_value out_chan message;
+        flush out_chan;
 
-    (*On ferme la socket et on passe au mineur suivant *)
-    Unix.shutdown s Unix.SHUTDOWN_ALL
+        (*On ferme la socket et on passe au mineur suivant *)
+        Unix.shutdown s Unix.SHUTDOWN_ALL
+      end
     ) !set_miner
 
 
@@ -76,82 +93,98 @@ let properly_close sc =
     Fonction gérant les messages entrant pour le mineur
 *)
 let receive_msg sc =
-  match select [sc] [] [] 10.0 with
-  | [], [], [] -> properly_close sc
-  | sc_list, [], [] ->
-    begin
-      if List.mem sc sc_list then
-        begin
-          let in_chan = in_channel_of_descr sc in
-          let out_chan = out_channel_of_descr sc in
+  
+  let in_chan = in_channel_of_descr sc in
+  let out_chan = out_channel_of_descr sc in
 
-          try
-            (* On receptionne un message sur le canal *)
-            let received_message = input_value in_chan in
+  try
+    (* On receptionne un message sur le canal *)
+    let received_message = input_value in_chan in
 
-            (* On traite la commande correspondant au message*)
-            match received_message with
-            |New_miner m ->
-              ()
-            |Recv_minerset lm ->
-              ()
-            |Connected_miner m ->
-              (* Connexion d'un nouveau mineur *)
-            
-              (* Envoie de notre liste de mineur au nouveau mineur *)
-              output_value out_chan (Recv_minerset !set_miner);
-              (* On oublie pas de vider le canal de sortie *)
-              flush out_chan;
+    (* On traite la commande correspondant au message*)
+    match received_message with
+    |New_miner m ->
+      ()
+    |Recv_minerset lm ->
+      ()
+    |Connected_miner m ->
+      (* Connexion d'un nouveau mineur *)
+    
+      (* Envoie de notre liste de mineur au nouveau mineur *)
+      output_value out_chan (Recv_minerset !set_miner);
+      (* On oublie pas de vider le canal de sortie *)
+      flush out_chan;
 
-              (* On broadcast le nouveau mineur vers tous les autres que l'on connait *)
-              broadcast_miner (Broadcast (New_miner m));
+      (* On broadcast le nouveau mineur vers tous les autres que l'on connait *)
+      broadcast_miner (Broadcast (New_miner m));
 
-              (* On ajoute le nouveau mineur à notre liste *)
-              set_miner := MinerSet.add m !set_miner
+      (* On ajoute le nouveau mineur à notre liste *)
+      set_miner := MinerSet.add m !set_miner
+    |Waller_message m ->
+      (* Reception d'un message provenant d'un waller *)
+      let waller_msg = string_of_waller_command m in
+      print_string waller_msg;
+      print_newline();
+      broadcast_miner (Broadcast (Waller_message m))
+    |Broadcast m ->
+      begin
+        (* Reception d'un message de broadcast *)
+        (* On crée le hash du message *)
+        let hash_received_msg = hash_string_to_zint (string_of_serv_command m) in
+        
+        (* Si le message n'est pas dans l'ensemble des messages reçu *)
+        if not (already_received hash_received_msg) then
+          begin
+            (* On ajoute le message à l'ensemble des messages déjà reçu *)
+            set_msg_received := IntSet.add hash_received_msg !set_msg_received;
+            match m with
+            |New_miner mi ->
+              (* Un nouveau mineur a été broadcasté *)
+
+              (* Ajout du nouveau mineur à la liste si le nouveau mineur n'est pas déjà moi *)
+              if mi.addr != !me.addr && mi.port != !me.port then
+                set_miner := MinerSet.add mi !set_miner
             |Waller_message m ->
-              (* Reception d'un message provenant d'un waller *)
+              (* Reception d'un message de waller broadcasté *)
               let waller_msg = string_of_waller_command m in
               print_string waller_msg;
               print_newline();
               broadcast_miner (Broadcast (Waller_message m))
-            |Broadcast m ->
-              (* Reception d'un message de broadcast *)
-              begin
-                match m with
-                |New_miner mi ->
-                  (* Un nouveau mineur a été broadcasté *)
-
-                  (* Ajout du nouveau mineur à la liste *)
-                  if mi.addr != !me.addr && mi.port != !me.port then
-                    set_miner := MinerSet.add mi !set_miner
-                |Waller_message m ->
-                  (* Reception d'un message de waller broadcasté *)
-                  let waller_msg = string_of_waller_command m in
-                  print_string waller_msg;
-                  print_newline();
-                |_ -> ()
-            end;
-
-            Unix.shutdown sc Unix.SHUTDOWN_ALL
-
-          with End_of_file ->
-            properly_close sc
-        end
-      else
-        properly_close sc
-    end
-    |_, _, _ -> properly_close sc
+            |_ -> ()
+          end
+      end;
+    Unix.shutdown sc Unix.SHUTDOWN_ALL
+  with End_of_file ->
+    properly_close sc
 
 (*
   Fonction permettant l'attente d'une connexion au serveur. Chaque nouvelle connexion crée un thread traitant la connexion.
 *)
 let rec serv_process sock =
   listen sock 5;
-  while true do
-    let sc, _ = accept sock in
-    let _ = Thread.create receive_msg sc in
-    ()
-  done
+
+  let server_handler sock =
+    let sc,_ = accept sock in
+    let received_msg_handling = read_socket_timeout (10.0, receive_msg, sc, properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
+    let _ = Thread.create received_msg_handling sc in
+    serv_process sock in
+  
+  let server_timeout sock =
+    set_msg_received := IntSet.empty;
+    serv_process sock in
+
+  read_socket_timeout (60.0, server_handler, sock, server_timeout, sock, (fun () -> print_string "erreur sur le traitement du serveur"), ()) sock
+
+let debug () =
+
+  let r1 = hash_string_to_zint "toto" in
+  let r2 = hash_string_to_zint "toto" in
+  Z.print r1;
+  print_newline();
+  Z.print r2
+  
+
+
 
 let command_behavior line =
   let listl = String.split_on_char ' ' line in
@@ -161,8 +194,9 @@ let command_behavior line =
   let show_miner = ("-show_miner", Arg.Unit (fun () -> print_string (string_of_setminer !set_miner)), "  Affiche la liste des mineurs connue") in
   let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_miner !me)), "  Affiche mes informations") in
   let clear = ("-clear", Arg.Unit (fun () -> let _ = Sys.command "clear" in ()), "  Supprime les affichages du terminal") in
+  let debug = ("-debug", Arg.Unit (fun () -> debug ()), "  Lance la fonction de débug") in
 
-  let speclist = [connect; exit; show_miner; show_me; clear] in
+  let speclist = [connect; exit; show_miner; show_me; clear; debug] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()
