@@ -143,7 +143,15 @@ let receive_msg sc =
 
               (* On ajoute le nouveau mineur à notre liste *)
               listminer := m :: !listminer;
-              print_string ("new list : "^string_of_listminer !listminer); print_newline()
+              print_string ("new list : "^string_of_listminer !listminer); print_newline() 
+            |Disconnected_miner m -> 
+              print_string "Un mineur se déconnecte.";
+              print_newline();
+              print_string ("Il s'agit de " ^ (string_of_miner m));
+              print_newline();
+              (* On enlève le mineur de notre liste *)
+              listminer := List.filter (fun a -> a != m) !listminer;
+              print_string ("new list : "^string_of_listminer !listminer); print_newline()  
             |Waller_message m ->
               (* Reception d'un message provenant d'un waller *)
               print_string m;

@@ -4,6 +4,7 @@ type serv_command =
 |New_miner of miner
 |Recv_minerlist of miner list
 |Connected_miner of miner
+|Disconnected_miner of miner
 |Waller_message of string
 |Broadcast of serv_command
 
@@ -12,6 +13,7 @@ let rec string_of_serv_command sc =
   |New_miner m -> "new_miner-" ^ string_of_miner m
   |Recv_minerlist ml -> "recv_minerlist-" ^ string_of_listminer ml
   |Connected_miner m -> "connected_miner-" ^ string_of_miner m
+  |Disconnected_miner m -> "disconnected_miner-" ^ string_of_miner m
   |Waller_message m -> "waller_message-" ^ m
   |Broadcast m -> "broadcast-" ^ string_of_serv_command m
 
@@ -26,6 +28,7 @@ let rec serv_command_of_string string_sc =
       |"new_miner" -> New_miner (mineur_of_string y)
       |"recv_minerlist" -> Recv_minerlist (listminer_of_string y)
       |"connected_miner" -> Connected_miner (mineur_of_string y)
+      |"disconnected_miner" -> Disconnected_miner (mineur_of_string y)
       |"waller_message" -> Waller_message y
       |_ -> raise ServCommandError
     end
