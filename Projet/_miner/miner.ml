@@ -1,6 +1,46 @@
 open Unix
+open Cryptokit
 
 type miner = {addr : Unix.inet_addr; port : int}
+
+(* création du module gérant l'ensemble des mineurs *)
+module MinerSet = Set.Make(
+  struct 
+    type t = miner
+    let compare m1 m2 =
+      if Unix.string_of_inet_addr m1.addr = Unix.string_of_inet_addr m2.addr && m1.port = m2.port then
+        0
+      else if m1.port < m2.port then
+        -1
+      else
+        1
+  end
+)
+
+(* création du module gérant l'ensemble des messages déjà reçu *)
+module IntSet = Set.Make(
+  struct
+    type t = Z.t
+    let compare = Z.compare
+  end
+)
+
+(* Ensemble des mineurs *)
+let set_miner = ref MinerSet.empty
+
+(* Ensemble des messages reçu par le mineur *)
+let set_msg_received = ref IntSet.empty
+
+(* L'adresse IP et le port du mineur courant *)
+let my_ip = ref "127.0.0.1"
+let my_port = ref 8000
+let set_my_ip ip = my_ip := ip
+let set_my_port port = my_port := port
+
+let exit_miner = ref false
+
+(* La représentation du mineur courant *)
+let me = ref {addr = (inet_addr_of_string "127.0.0.1"); port = 0}
 
 let string_of_miner m =
   "{" ^ string_of_inet_addr m.addr ^ ":" ^ string_of_int m.port ^ "}"
@@ -8,7 +48,7 @@ let string_of_miner m =
 let strip_both_chars str =
   match String.length str with
     | 0 | 1 | 2 -> ""
-    | len -> String.sub str 1 (len - 2)
+    | str_len -> String.sub str 1 (str_len - 2)
 
 exception ErrorMiner
 let mineur_of_string string_m =
@@ -21,16 +61,22 @@ let mineur_of_string string_m =
     {addr;port}
   |_ -> raise ErrorMiner
 
-let string_of_listminer lm =
+
+let string_of_setminer sm =
+  let miner_list = MinerSet.elements sm in
   let rec rec_fun l acc = 
     match l with
     |[] -> acc
     |x :: [] -> acc ^ string_of_miner x
     |x :: y :: next ->
       rec_fun (y :: next) (acc ^ string_of_miner x ^ ",") in
-  rec_fun lm ""
+  rec_fun miner_list ""
 
-let listminer_of_string string_miner =
-  let split_listm = String.split_on_char ',' string_miner in
-  List.map (fun str_miner ->
-    mineur_of_string str_miner) split_listm
+let setminer_of_string string_miner =
+  let split_setm = String.split_on_char ',' string_miner in
+  List.fold_left (fun set_miner string_miner ->
+    MinerSet.add (mineur_of_string string_miner) set_miner) MinerSet.empty split_setm
+
+let already_received msg =
+  IntSet.mem msg !set_msg_received
+    
