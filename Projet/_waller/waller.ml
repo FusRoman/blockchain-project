@@ -1,6 +1,8 @@
 open Unix
 open Command
 open Arg
+open Cryptokit
+
 
 let ip_miner = ref ""
 let port_miner = ref 0

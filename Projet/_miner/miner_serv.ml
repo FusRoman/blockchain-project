@@ -69,9 +69,13 @@ let connect_to_miner distant_miner =
     end
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
 
+  
+type broadcast_feedback =
+|Ok
+|Error
 
 
-let rec broadcast_miner message =
+let rec broadcast_miner (message, connecting_addr) predicates =
   (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
   MinerSet.iter (fun miner ->
       begin
@@ -80,13 +84,13 @@ let rec broadcast_miner message =
         setsockopt s SO_REUSEADDR true;
         Unix.connect s (ADDR_INET(miner.addr, miner.port));
 
-        (* On prépare le message à envoyer. Il s'agit du nouveau mineur à envoyé vers tous les autres *)
+        (* On prépare le message à envoyer. *)
         let out_chan = out_channel_of_descr s in
 
         (* On envoie le message *)
         output_value out_chan message;
         flush out_chan;
-
+        
         (*On ferme la socket et on passe au mineur suivant *)
         Unix.shutdown s Unix.SHUTDOWN_ALL
       end
@@ -102,7 +106,7 @@ let properly_close sc =
 (*
     Fonction gérant les messages entrant pour le mineur
 *)
-let receive_msg sc =
+let receive_msg (sc, connecting_addr) =
   
   let in_chan = in_channel_of_descr sc in
   let out_chan = out_channel_of_descr sc in
@@ -176,9 +180,9 @@ let rec serv_process sock =
   listen sock 5;
 
   let server_handler sock =
-    let sc,_ = accept sock in
+    let sc, connecting_addr = accept sock in
     (* On met en place un timeout de 10 seconde pour la reception d'un message sur la socket; au dela de 10 seconde, le thread est terminé *)
-    let received_msg_handling = read_socket_timeout (10.0, receive_msg, sc, properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
+    let received_msg_handling = read_socket_timeout (10.0, receive_msg, (sc, connecting_addr), properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
     (* On lance le thread chargé de traité le message entrant *)
     let _ = Thread.create received_msg_handling sc in
     serv_process sock in

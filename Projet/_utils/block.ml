@@ -7,9 +7,6 @@ open Cryptokit
 (* Version des block pour le projet *)
 type block = {m: string; id: int; mutable nonce: int; previous_hash: string; timestamp: float}
 
-(* type de la devise de la crypto-monnaie *)
-type euc = {value: Z.t}
-
 let make_genesis m =
   {m; nonce = 0; id = 0; previous_hash = ""; timestamp = time()}
 
