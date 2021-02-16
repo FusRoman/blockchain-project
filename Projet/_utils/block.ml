@@ -7,6 +7,7 @@ open Cryptokit
 (* Version des block pour le projet *)
 type block = {m: string; id: int; mutable nonce: int; previous_hash: string; timestamp: float}
 
+(* type de la devise de la crypto-monnaie *)
 type euc = {value: Z.t}
 
 let make_genesis m =
@@ -24,11 +25,6 @@ let hash_string_to_zint m =
   to_hex#put_string hash;
   to_hex#finish;
   Z.of_string_base 16 to_hex#get_string
-
-
-
-
-
 
 
 

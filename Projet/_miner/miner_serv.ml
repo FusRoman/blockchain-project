@@ -132,6 +132,9 @@ let receive_msg sc =
       set_miner := MinerSet.add m !set_miner
     |Transaction m ->
       (* Reception d'un message provenant d'un waller *)
+      let hash_received_msg = hash_string_to_zint (string_of_serv_command (Transaction m)) in
+      set_msg_received := IntSet.add hash_received_msg !set_msg_received;
+      
       print_string m;
       print_newline();
       broadcast_miner (Broadcast (Transaction m))
