@@ -26,6 +26,13 @@ let stripchars s cs =
 let remove_null_characters s =
   stripchars s (String.make 1 (Char.chr 0))
 
+
+let strip_both_chars str =
+  match String.length str with
+    | 0 | 1 | 2 -> ""
+    | str_len -> String.sub str 1 (str_len - 2)
+
+
 (*
 ======================================================================================================================================================================
   Ensemble de fonction permettant la gestion des opérations cryptographique du projet.
@@ -93,7 +100,7 @@ let combine_hash h1 h2 =
 (*
 ======================================================================================================================================================================
   Arbre de Merkel
-  Utiliser par les blocs pour stockers les hash des transactions et faciliter la vérification
+  Utiliser par les blocs pour stocker les hash des transactions et faciliter la vérification
 *)
 
 type merkel_tree =

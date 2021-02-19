@@ -44,8 +44,10 @@ type lazy_node = {
 
 (*
   Pour permettre la transmission de transaction en utilisant uniquement un système basé sur les ids, un mécanisme semblable au DNS (Domain Name Server) est mis en place.
-  Le type dns_translation fait la traduction entre un id d'un compte et une adresse internet représenté par le couple (IP, port).
+  Le type dns_translation fait la traduction entre un id d'un noeud et une adresse internet représenté par le couple (IP, port).
   Un id est associé à un unique couple (IP, port).
+
+  Pour déterminer à quelle noeud appartiennent les adresses de compte actuellement, chaque id est également associé à sa liste d'adresse. 
 *)
 type dns_translation = {
   id: int;
@@ -53,6 +55,10 @@ type dns_translation = {
   internet_adress: Unix.inet_addr * int
   }
 
+
+(*
+  Ce module permet de crée un ensemble de table de traduction DNS.
+*)
   module DNS = Set.Make(
     struct
       type t = dns_translation
@@ -85,8 +91,7 @@ type dns_translation = {
 *)
 type full_node = {
   lazy_part: lazy_node;
-  dns: DNS.t;
-  max_id: Z.t
+  dns: DNS.t
   }
 
 

@@ -1,11 +1,12 @@
 open Miner
 open Block
+open Node
 
 
 
 (* Commande de communication entre les mineurs *)
 type serv_command =
-|New_miner of miner
+|New_miner of full_node
 |Recv_minerset of MinerSet.t
 |Connected_miner of miner
 |Broadcast of serv_command
