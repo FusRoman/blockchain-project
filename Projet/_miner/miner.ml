@@ -1,16 +1,16 @@
 open Unix
 open Node
  
-type miner = {addr : Unix.inet_addr; port : int}
+(*type miner = full_node {addr : Unix.inet_addr; port : int}*)
 
 (* création du module gérant l'ensemble des mineurs *)
 module MinerSet = Set.Make(
   struct 
-    type t = miner
+    type t = full_node
     let compare m1 m2 =
-      if Unix.string_of_inet_addr m1.addr = Unix.string_of_inet_addr m2.addr && m1.port = m2.port then
+      if m1.lazy_part.id = m2.lazy_part.id && m1.dns.id = m2.dns.id then
         0
-      else if m1.port < m2.port then
+      else if m1.lazy_part.id < m2.lazy_part.id then
         -1
       else
         1
@@ -40,7 +40,8 @@ let set_my_port port = my_port := port
 let exit_miner = ref false
 
 (* La représentation du mineur courant *)
-let me = ref {addr = (inet_addr_of_string "127.0.0.1"); port = 0}
+let me = ref { lazy_part: lazy_node; dns: DNS.t; max_id: Z.t } 
+(*{addr = (inet_addr_of_string "127.0.0.1"); port = 0}*)
 
 let string_of_miner m =
   "{" ^ string_of_inet_addr m.addr ^ ":" ^ string_of_int m.port ^ "}"
