@@ -1,10 +1,10 @@
 open Miner
 
 type serv_command =
-|New_miner of miner
-|Recv_minerlist of miner list
-|Connected_miner of miner
-|Disconnected_miner of miner
+|New_miner of full_node
+|Recv_minerlist of full_node list
+|Connected_miner of full_node
+|Disconnected_miner of full_node
 |Waller_message of string
 |Broadcast of serv_command
 

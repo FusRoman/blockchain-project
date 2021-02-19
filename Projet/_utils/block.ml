@@ -17,7 +17,7 @@ type euc = float
 *)
 
 (*
-  L'entrée d'une transaction est une référence à la sortie d'une d'une transaction précédente.
+  L'entrée d'une transaction est une référence à la sortie d'une transaction précédente.
   Plusieurs entrée peuvent être référencé dans une transaction et toute les valeurs d'entrée
   d'une nouvelle transaction (c'est à dire la valeur total des sortie de la transactions référence)
   sont ajouté. Le total doit être complétement utilisé par la transaction.

@@ -6,8 +6,7 @@ open Block
 
   Chaque compte contient une liste de transaction. Chaque transaction contient l' id de la transaction, la date à laquelle elle a été confirmé, 
   une adresse et le montant de cryptomonnaie transféré par la transaction.
-  L'adresse contenue dans la transaction est soit l'émetteur dans le cas où le compte a reçu de la monnaie ou le recepteur
-  dans le cas où le wallet a envoyé de l'argent.
+  
 
   Chaque compte est associé à une pair de clé privé/public pour garantir la sécurité du compte via le protocole RSA.
   Un compte a également un nom donné par l'utilisateur pour la commodité.
