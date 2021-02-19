@@ -202,17 +202,8 @@ let rec serv_process sock =
 
 (* Fonction de débug permettant de tester des trucs dans l'environnement du mineur *)
 let debug () =
-  let hw_rng = Random.hardware_rng() in
+  ()
   
-  let fake_tr = {inputs = []; outputs = []} in
-
-  let user_0_key = RSA.new_key ~rng:hw_rng 2048 in
-  let user_1_key = RSA.new_key ~rng:hw_rng 2048 in
-  let pk_0 = get_public_key user_0_key in
-  let pk_1 = get_public_key user_1_key in
-  let sign = sign_transaction user_0_key fake_tr in
-  let r = verif_transaction sign pk_0 fake_tr in
-  print_string (string_of_bool r) 
   
 
 let command_behavior line =

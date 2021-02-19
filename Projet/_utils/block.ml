@@ -17,7 +17,7 @@ type euc = float
 *)
 
 (*
-  L'entrée d'une transaction est une référence à la sortie d'une d'une transaction précédente.
+  L'entrée d'une transaction est une référence à la sortie d'une transaction précédente.
   Plusieurs entrée peuvent être référencé dans une transaction et toute les valeurs d'entrée
   d'une nouvelle transaction (c'est à dire la valeur total des sortie de la transactions référence)
   sont ajouté. Le total doit être complétement utilisé par la transaction.
@@ -66,7 +66,7 @@ type output_tr = {
 (*
   Une transaction correspond à un ensemble d'entré et de sortie.
   Les valeurs échangés dans la transaction correspondent aux total des valeurs
-  contenue dans la liste d'entré.
+  contenue dans la liste d'input.
   Comme énoncé plus haut, la somme des valeurs des inputs doit être
   la même que la somme des outputs.
 
@@ -131,15 +131,14 @@ let verif_transaction transaction_signature pk_component tr  =
   Chaque full node compare le temps qu'il a mis pour miné la bloc à la position x avec le temps mis pour miné le bloc à la position x - 2016. Le target est réajusté selon un pourcentage
   de la différence des deux temps de minage. Un changement de target ne peut être fait d'un facteur supérieur à 4 pour éviter de trop gros changement de difficulté.
 
-  Le nonce est incrémenté à chaque test du proof_of_work pour modifié la valeur du hash. Comme le nonce est représenté par un entier ayant une représentation binaire limité,
-  chaque fois que le nonce overflow, un champ de la transaction "Generation" du bloc est incrémenté, ce champ est appelé "extraNonce" et fait partie 
+  Le nonce est incrémenté à chaque test du proof_of_work pour modifié la valeur du hash.
 *)
 type block_header = {
   previous_hash: string; 
   hash_merkelroot: string; 
   timestamp: float; 
   target: Z.t; 
-  nonce: int
+  nonce: Z.t
   }
 
 (*
@@ -152,6 +151,9 @@ type block = {
   transactions: transaction list
   }
 
+
+let lowest_target = "00000DFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+
 (*
  Le bloc genesis est le premier bloc de la blockchain.
 *)
@@ -161,12 +163,48 @@ let block_genesis =
       previous_hash = "";
       hash_merkelroot = "";
       timestamp = 0.0;
-      target = Z.of_int 0;
-      nonce = -1
+      target = Z.of_string_base 16 lowest_target;
+      nonce = Z.of_int 0
     };
     transactions = []
   }
 
+let string_of_block_header bh =
+  bh.previous_hash ^
+  bh.hash_merkelroot ^
+  string_of_float bh.timestamp ^ "  " ^
+  Z.to_string bh.target ^ "   " ^
+  Z.to_string bh.nonce
+
+let hash_of_block_header block =
+  sha3_of_string (string_of_block_header block.block_h)
+
+let empty_tr = {inputs = []; outputs = []}
+let new_transaction = ref empty_tr
+let new_transaction_incoming = ref false
+
+let rec hashcash_proof_of_work block =
+  let block = if !new_transaction_incoming then
+                {
+                  block with
+                  transactions = !new_transaction :: block.transactions
+                }
+              else
+                block in
+  new_transaction_incoming := false;
+  new_transaction := empty_tr;
+  let hash_header = hash_of_block_header block in
+  if zint_of_hash hash_header < block.block_h.target then
+    block
+  else
+    hashcash_proof_of_work {
+      block with
+      block_h = {
+        block.block_h with
+        timestamp = Unix.time();
+        nonce = Z.add block.block_h.nonce (Z.of_int 1);
+      }
+    }
 
 
 

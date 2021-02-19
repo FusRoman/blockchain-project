@@ -37,8 +37,8 @@ type account = {
   pour traité leurs transactions puisqu'il peuvent le faire eux-même. 
 *)
 type lazy_node = {
-  id: int; 
-  accounts: account list; 
+  id: int;
+  accounts: account list;
   mutable fullnode_info: (int * (Unix.inet_addr * int)) option
   }
 
