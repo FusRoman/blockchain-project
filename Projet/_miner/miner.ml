@@ -1,6 +1,6 @@
 open Unix
-open Cryptokit
-
+open Node
+ 
 type miner = {addr : Unix.inet_addr; port : int}
 
 (* création du module gérant l'ensemble des mineurs *)

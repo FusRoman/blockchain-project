@@ -6,6 +6,7 @@ open Command
 open Mutex
 open Block
 open Cryptokit
+open Miscellaneous
 
 (* Cette fonction permet de créé un comportement de timeout sur une socket
     -le premier paramètre est un n-uplet dont:
@@ -28,6 +29,10 @@ let read_socket_timeout (timeout, working_function, args_work, timeout_function,
         error_function args_error
   |_, _, _ -> error_function args_error
 
+
+(*
+        Cette fonction permet d'initier la connexion initial entre deux mineurs
+*)
 let connect_to_miner distant_miner =
   match String.split_on_char ':' distant_miner with
   |[ip; port] ->
@@ -69,9 +74,13 @@ let connect_to_miner distant_miner =
     end
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
 
+  
+type broadcast_feedback =
+|Ok
+|Error
 
 
-let rec broadcast_miner message =
+let rec broadcast_miner (message, connecting_addr) predicates =
   (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
   MinerSet.iter (fun miner ->
       begin
@@ -80,7 +89,7 @@ let rec broadcast_miner message =
         setsockopt s SO_REUSEADDR true;
         Unix.connect s (ADDR_INET(miner.addr, miner.port));
 
-        (* On prépare le message à envoyer. Il s'agit du nouveau mineur à envoyé vers tous les autres *)
+        (* On prépare le message à envoyer. *)
         let out_chan = out_channel_of_descr s in
 
         (* On envoie le message *)
@@ -102,7 +111,7 @@ let properly_close sc =
 (*
     Fonction gérant les messages entrant pour le mineur
 *)
-let receive_msg sc =
+let receive_msg (sc, connecting_addr) =
   
   let in_chan = in_channel_of_descr sc in
   let out_chan = out_channel_of_descr sc in
@@ -126,21 +135,24 @@ let receive_msg sc =
       flush out_chan;
 
       (* On broadcast le nouveau mineur vers tous les autres que l'on connait *)
-      broadcast_miner (Broadcast (New_miner m));
+      broadcast_miner ((Broadcast (New_miner m)), connecting_addr) ();
 
       (* On ajoute le nouveau mineur à notre liste *)
       set_miner := MinerSet.add m !set_miner
     |Transaction m ->
       (* Reception d'un message provenant d'un waller *)
+      let hash_received_msg = zint_of_hash (string_of_serv_command (Transaction m)) in
+      set_msg_received := IntSet.add hash_received_msg !set_msg_received;
+      
       print_string m;
       print_newline();
-      broadcast_miner (Broadcast (Transaction m))
+      broadcast_miner ((Broadcast (Transaction m)), connecting_addr) ()
     |Transac_proof tp -> ()
     |Broadcast m ->
       begin
         (* Reception d'un message de broadcast *)
         (* On crée le hash du message *)
-        let hash_received_msg = hash_string_to_zint (string_of_serv_command m) in
+        let hash_received_msg = zint_of_hash (string_of_serv_command m) in
         
         (* Si le message n'est pas dans l'ensemble des messages reçu *)
         if not (already_received hash_received_msg) then
@@ -158,7 +170,7 @@ let receive_msg sc =
               (* Reception d'un message de waller broadcasté *)
               print_string m;
               print_newline();
-              broadcast_miner (Broadcast (Transaction m))
+              broadcast_miner ((Broadcast (Transaction m)), connecting_addr) ()
             |_ -> ()
           end
       end;
@@ -173,9 +185,9 @@ let rec serv_process sock =
   listen sock 5;
 
   let server_handler sock =
-    let sc,_ = accept sock in
+    let sc, connecting_addr = accept sock in
     (* On met en place un timeout de 10 seconde pour la reception d'un message sur la socket; au dela de 10 seconde, le thread est terminé *)
-    let received_msg_handling = read_socket_timeout (10.0, receive_msg, sc, properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
+    let received_msg_handling = read_socket_timeout (10.0, receive_msg, (sc, connecting_addr), properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
     (* On lance le thread chargé de traité le message entrant *)
     let _ = Thread.create received_msg_handling sc in
     serv_process sock in
@@ -190,12 +202,17 @@ let rec serv_process sock =
 
 (* Fonction de débug permettant de tester des trucs dans l'environnement du mineur *)
 let debug () =
+  let hw_rng = Random.hardware_rng() in
+  
+  let fake_tr = {inputs = []; outputs = []} in
 
-  let r1 = hash_string_to_zint "toto" in
-  let r2 = hash_string_to_zint "toto" in
-  Z.print r1;
-  print_newline();
-  Z.print r2
+  let user_0_key = RSA.new_key ~rng:hw_rng 2048 in
+  let user_1_key = RSA.new_key ~rng:hw_rng 2048 in
+  let pk_0 = get_public_key user_0_key in
+  let pk_1 = get_public_key user_1_key in
+  let sign = sign_transaction user_0_key fake_tr in
+  let r = verif_transaction sign pk_0 fake_tr in
+  print_string (string_of_bool r) 
   
 
 let command_behavior line =

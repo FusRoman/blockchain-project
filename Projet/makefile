@@ -6,7 +6,7 @@ WALLER = _waller/
 UTILS = _utils/
 LIB = -I +threads threads.cma
 PACK = -package cryptokit -linkpkg
-CMO = $(BUILD)miner.cmo $(BUILD)command.cmo $(BUILD)block.cmo
+CMO =  $(BUILD)miscellaneous.cmo $(BUILD)miner.cmo $(BUILD)command.cmo $(BUILD)block.cmo
 
 all: miner_serv.exe waller.exe
 	clear
@@ -14,12 +14,12 @@ all: miner_serv.exe waller.exe
 # miner_serv rules
 
 miner_serv.exe: miner.cmo command.cmo block.cmo _build _exec
-	ocamlfind $(OC) $(PACK) -I +threads threads.cma -I $(BUILD) $(CMO) $(MINER)miner_serv.ml -o $(EXEC)miner_serv.exe
+	ocamlfind $(OC) $(PACK) $(LIB) -I $(BUILD) $(CMO) $(MINER)miner_serv.ml -o $(EXEC)miner_serv.exe
 
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
 
-miner.cmo: _build 
-	ocamlfind $(OC) -c $(PACK) $(MINER)miner.ml
+miner.cmo: _build node.cmo
+	ocamlfind $(OC) -c -I $(BUILD) $(PACK) $(MINER)miner.ml
 
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
 
@@ -35,9 +35,21 @@ command.cmo: _build miner.cmo
 
 	mv $(UTILS)*.cmo $(UTILS)*.cmi $(BUILD)
 
+# node rules
+node.cmo: _build block.cmo
+	ocamlfind $(OC) -c -I $(BUILD) $(PACK) $(UTILS)node.ml
+
+	mv $(UTILS)*.cmo $(UTILS)*.cmi $(BUILD)
+
 # block rules
-block.cmo: _build
-	ocamlfind $(OC) -c $(PACK) $(LIB) $(UTILS)block.ml
+block.cmo: _build miscellaneous.cmo
+	ocamlfind $(OC) -c $(PACK) $(LIB) -I $(BUILD) $(BUILD)miscellaneous.cmo $(UTILS)block.ml
+
+	mv $(UTILS)*.cmo $(UTILS)*.cmi $(BUILD)
+
+#miscellaneous rules
+miscellaneous.cmo: _build
+	ocamlfind $(OC) -c $(PACK) $(UTILS)miscellaneous.ml
 
 	mv $(UTILS)*.cmo $(UTILS)*.cmi $(BUILD)
 
