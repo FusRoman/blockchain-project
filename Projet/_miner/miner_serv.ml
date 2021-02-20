@@ -7,6 +7,7 @@ open Mutex
 open Block
 open Cryptokit
 open Miscellaneous
+open Node
 
 (* Cette fonction permet de créé un comportement de timeout sur une socket
     -le premier paramètre est un n-uplet dont:
@@ -29,77 +30,135 @@ let read_socket_timeout (timeout, working_function, args_work, timeout_function,
         error_function args_error
   |_, _, _ -> error_function args_error
 
+exception Broadcast_error
+
+let broadcast_miner set_miner f init_message =
+  (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
+  let dns_list = Node.DNS.elements set_miner in
+  let rec iter_list (miner_list: Node.dns_translation list) message =
+    match miner_list with
+    |[] -> ()
+    |miner :: next ->
+      begin
+        let ip, port = miner.internet_adress in
+
+        (* On créé la socket puis on la connecte vers le mineur de la liste *)
+        let s = socket PF_INET SOCK_STREAM 0 in
+        setsockopt s SO_REUSEADDR true;
+        Unix.connect s (ADDR_INET(ip, port));
+
+        (* On prépare le message à envoyer. *)
+        let out_chan = out_channel_of_descr s in
+
+        let new_msg = f message in
+
+        (* On envoie le message *)
+        output_value out_chan new_msg;
+        flush out_chan;
+
+        (*On ferme la socket et on passe au mineur suivant *)
+        Unix.shutdown s Unix.SHUTDOWN_ALL;
+
+        (* On recommence avec le mineur suivant et le nouveau message *)
+        iter_list next new_msg
+      end in
+  iter_list dns_list init_message
+
+
+let send_msg_to_miner id dns msg =
+  let miner =  DNS.choose (DNS.filter (fun dns_t -> dns_t.id = id) dns) in
+
+  let ip, port = miner.internet_adress in
+
+  (* On créé la socket puis on la connecte vers le mineur de la liste *)
+  let s = socket PF_INET SOCK_STREAM 0 in
+  setsockopt s SO_REUSEADDR true;
+  Unix.connect s (ADDR_INET(ip, port));
+
+  (* On prépare le message à envoyer. *)
+  let out_chan = out_channel_of_descr s in
+
+  (* On envoie le message *)
+  output_value out_chan msg;
+  flush out_chan;
+
+  (*On ferme la socket et on passe au mineur suivant *)
+  Unix.shutdown s Unix.SHUTDOWN_ALL
+
+
+let send_msg_to_miner_with_ip (ip, port) msg =
+  (* On créé la socket puis on la connecte vers le mineur de la liste *)
+  let s = socket PF_INET SOCK_STREAM 0 in
+  setsockopt s SO_REUSEADDR true;
+  Unix.connect s (ADDR_INET(ip, port));
+
+  (* On prépare le message à envoyer. *)
+  let out_chan = out_channel_of_descr s in
+
+  (* On envoie le message *)
+  output_value out_chan msg;
+  flush out_chan;
+
+  (*On ferme la socket et on passe au mineur suivant *)
+  Unix.shutdown s Unix.SHUTDOWN_ALL
+
 
 (*
         Cette fonction permet d'initier la connexion initial entre deux mineurs
 *)
 let connect_to_miner distant_miner =
   match String.split_on_char ':' distant_miner with
-  |[ip; port] ->
+  |[distant_ip; distant_port] ->
     begin
+      let my_ip, my_port, account_adress, my_dns = get_my_connected_info () in
       (* Si l'adresse tapé n'est pas celle qui m'a été attribué *)
-      if int_of_string port != !me.port && ip != string_of_inet_addr !me.addr then
+      if int_of_string distant_port != my_port && distant_ip != string_of_inet_addr my_ip then
         begin
           let s = socket PF_INET SOCK_STREAM 0 in
           setsockopt s SO_REUSEADDR true;
 
           (* On se connecte au mineur distant et on ouvre un canal d'envoi et de reception *)
-          Unix.connect s (ADDR_INET(inet_addr_of_string ip, int_of_string port));
+          Unix.connect s (ADDR_INET (inet_addr_of_string distant_ip, int_of_string distant_port));
           let in_chan = in_channel_of_descr s in
           let out_chan = out_channel_of_descr s in
           
           (* On envoie les informations du mineur courant vers le mineur connecté *)
-          output_value out_chan (Connected_miner !me);
+          output_value out_chan (New_miner (my_ip, my_port, account_adress, my_dns));
           flush out_chan;
           
 
           (* On attend une réponse du mineur connecté *)
+          try
           let received_command = input_value in_chan in
+          
+          print_string "on reçoit une réponse";
+          print_newline();
 
           match received_command with
-          |Recv_minerset lm ->
-            (* On initialise notre liste avec la liste venant du mineur auquel nous sommes connecté. On y ajoute également le mineur auquel nous sommes connecté.*)
-            let filter = (MinerSet.filter (fun miner -> miner.addr != !me.addr && miner.port != !me.port) lm) in
-            set_miner := MinerSet.union !set_miner filter;
-            set_miner := MinerSet.add {addr = inet_addr_of_string ip; port = int_of_string port} !set_miner;
-          |New_miner m ->
-            print_string "nm";print_newline();
-          |Connected_miner m ->
-            print_string "cm";print_newline();
-          |Transaction _ |Broadcast _ |Transac_proof _ -> ();
+          |Change_id_and_dns (my_id, new_dns) ->
+            begin
+              print_string "mon id est ";
+              print_int my_id;
+              print_newline();
+
+              me := {
+                lazy_part = {
+                  !me.lazy_part with
+                  id = my_id
+                };
+                dns = new_dns
+              }
+
+            end
+          |_ -> ();
 
           
           shutdown s Unix.SHUTDOWN_ALL
+          with
+          |End_of_file -> print_string "fuck"
         end
     end
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
-
-  
-type broadcast_feedback =
-|Ok
-|Error
-
-
-let rec broadcast_miner (message, connecting_addr) predicates =
-  (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
-  MinerSet.iter (fun miner ->
-      begin
-        (* On créé la socket puis on la connecte vers le mineur de la liste *)
-        let s = socket PF_INET SOCK_STREAM 0 in
-        setsockopt s SO_REUSEADDR true;
-        Unix.connect s (ADDR_INET(miner.addr, miner.port));
-
-        (* On prépare le message à envoyer. *)
-        let out_chan = out_channel_of_descr s in
-
-        (* On envoie le message *)
-        output_value out_chan message;
-        flush out_chan;
-
-        (*On ferme la socket et on passe au mineur suivant *)
-        Unix.shutdown s Unix.SHUTDOWN_ALL
-      end
-    ) !set_miner
 
 
 
@@ -111,7 +170,7 @@ let properly_close sc =
 (*
     Fonction gérant les messages entrant pour le mineur
 *)
-let receive_msg (sc, connecting_addr) =
+let receive_msg sc =
   
   let in_chan = in_channel_of_descr sc in
   let out_chan = out_channel_of_descr sc in
@@ -119,61 +178,100 @@ let receive_msg (sc, connecting_addr) =
   try
     (* On receptionne un message sur le canal *)
     let received_message = input_value in_chan in
+    print_string "on a reçu le msg";
+    print_newline();
 
-    (* On traite la commande correspondant au message*)
-    match received_message with
-    |New_miner m ->
-      ()
-    |Recv_minerset lm ->
-      ()
-    |Connected_miner m ->
-      (* Connexion d'un nouveau mineur *)
-    
-      (* Envoie de notre liste de mineur au nouveau mineur *)
-      output_value out_chan (Recv_minerset !set_miner);
-      (* On oublie pas de vider le canal de sortie *)
-      flush out_chan;
+    begin
+      (* On traite la commande correspondant au message*)
+      match received_message with
+      |New_miner (distant_ip, distant_port, account_adress, distant_dns) ->
+        begin
+          print_string "il s'agit d'un nouveau mineur, son id sera :";
+          print_newline();
 
-      (* On broadcast le nouveau mineur vers tous les autres que l'on connait *)
-      broadcast_miner ((Broadcast (New_miner m)), connecting_addr) ();
+          let my_dns_t = {id = !me.lazy_part.id; account_adress = get_all_accounts_adress(); internet_adress = !me.lazy_part.my_internet_adress} in
 
-      (* On ajoute le nouveau mineur à notre liste *)
-      set_miner := MinerSet.add m !set_miner
-    |Transaction m ->
-      (* Reception d'un message provenant d'un waller *)
-      let hash_received_msg = zint_of_hash (string_of_serv_command (Transaction m)) in
-      set_msg_received := IntSet.add hash_received_msg !set_msg_received;
-      
-      print_string m;
-      print_newline();
-      broadcast_miner ((Broadcast (Transaction m)), connecting_addr) ()
-    |Transac_proof tp -> ()
-    |Broadcast m ->
-      begin
-        (* Reception d'un message de broadcast *)
-        (* On crée le hash du message *)
-        let hash_received_msg = zint_of_hash (string_of_serv_command m) in
-        
-        (* Si le message n'est pas dans l'ensemble des messages reçu *)
-        if not (already_received hash_received_msg) then
-          begin
-            (* On ajoute le message à l'ensemble des messages déjà reçu *)
-            set_msg_received := IntSet.add hash_received_msg !set_msg_received;
-            match m with
-            |New_miner mi ->
-              (* Un nouveau mineur a été broadcasté *)
-
-              (* Ajout du nouveau mineur à la liste si le nouveau mineur n'est pas déjà moi *)
-              if mi.addr != !me.addr && mi.port != !me.port then
-                set_miner := MinerSet.add mi !set_miner
-            |Transaction m ->
-              (* Reception d'un message de waller broadcasté *)
-              print_string m;
+          if not (DNS.is_empty distant_dns) then
+            begin
+              print_string (string_of_dns !me.dns);
               print_newline();
-              broadcast_miner ((Broadcast (Transaction m)), connecting_addr) ()
-            |_ -> ()
-          end
+
+              print_string (string_of_dns distant_dns);
+              print_newline();
+
+              let new_dns, all_new_id = merge_and_return_new_dns distant_dns !me.dns in
+
+              print_string (string_of_dns new_dns);
+              print_newline();
+
+
+              let free_id = get_free_id new_dns !me.lazy_part.id in
+              let new_dns = DNS.add {
+                id = free_id;
+                account_adress;
+                internet_adress = (distant_ip, distant_port)
+              } new_dns in
+
+
+              DNS.iter (fun dns_t ->
+                let real_new_dns = DNS.add my_dns_t new_dns in
+                send_msg_to_miner dns_t.id new_dns (Change_id_and_dns (dns_t.id, real_new_dns))) new_dns;
+
+              me := {
+                !me with
+                dns = new_dns
+              }
+            end
+          else
+            begin
+              let free_id = get_free_id !me.dns !me.lazy_part.id in
+              print_int free_id;
+              print_newline();
+
+
+              output_value out_chan (Change_id_and_dns (free_id, DNS.add my_dns_t !me.dns));
+              flush out_chan;
+
+
+              print_string "on a envoyé la réponse";
+              print_newline();
+              print_string "debut broadcast";
+              print_newline();
+
+
+              broadcast_miner !me.dns (fun m -> m) (Broadcast (New_miner (distant_ip, distant_port, account_adress, distant_dns), free_id));
+
+              let (new_dns_t: Node.dns_translation) = {
+                id = free_id;
+                account_adress;
+                internet_adress = (distant_ip, distant_port)
+              } in
+              update_me !me.lazy_part.id (Node.DNS.add new_dns_t distant_dns)
+            end
+        end
+      |Broadcast (m, id) ->
+        begin
+          match m with
+          |New_miner (distant_ip, distant_port, account_adress, new_dns) ->
+            let (new_dns_t: Node.dns_translation) = {
+            id;
+            account_adress;
+            internet_adress = (distant_ip, distant_port)
+          } in
+          update_me !me.lazy_part.id (Node.DNS.add new_dns_t !me.dns)
+          |_ -> ()
+        end
+      |Change_id_and_dns (new_id, new_dns) ->
+        let real_new_dns = DNS.filter (fun dns_t -> dns_t.id != new_id) new_dns in
+        me := {
+          lazy_part = {
+            !me.lazy_part with
+            id = new_id
+          };
+          dns = real_new_dns
+        }
       end;
+      
     Unix.shutdown sc Unix.SHUTDOWN_ALL
   with End_of_file ->
     properly_close sc
@@ -181,23 +279,16 @@ let receive_msg (sc, connecting_addr) =
 (*
   Fonction permettant l'attente d'une connexion au serveur. Chaque nouvelle connexion crée un thread traitant la connexion.
 *)
-let rec serv_process sock =
+let serv_process sock =
   listen sock 5;
-
-  let server_handler sock =
-    let sc, connecting_addr = accept sock in
-    (* On met en place un timeout de 10 seconde pour la reception d'un message sur la socket; au dela de 10 seconde, le thread est terminé *)
-    let received_msg_handling = read_socket_timeout (10.0, receive_msg, (sc, connecting_addr), properly_close, sc, (fun () -> print_string "erreur sur la réception d'un message"), ()) in
-    (* On lance le thread chargé de traité le message entrant *)
-    let _ = Thread.create received_msg_handling sc in
-    serv_process sock in
-  
-  let server_timeout sock =
-    set_msg_received := IntSet.empty;
-    serv_process sock in
-
-  (* On met en place un timeout de 4 seconde. Toute les 2 secondes, l'ensemble des messages reçu est remis à zéro *)
-  read_socket_timeout (4.0, server_handler, sock, server_timeout, sock, (fun () -> print_string "erreur sur le traitement du serveur"), ()) sock
+  while not !exit_miner do
+    let sc, _ = accept sock in
+    print_string "msg entrant";
+    print_newline();
+    let _ = Thread.create receive_msg sc in
+    flush_all ();
+    ()
+  done
 
 
 (* Fonction de débug permettant de tester des trucs dans l'environnement du mineur *)
@@ -211,8 +302,8 @@ let command_behavior line =
 
   let connect = ("-connect", Arg.String connect_to_miner, "   connexion à un mineur distant") in
   let exit = ("-exit", Arg.Set exit_miner, "  Termine le mineur" ) in
-  let show_miner = ("-show_miner", Arg.Unit (fun () -> print_string (string_of_setminer !set_miner)), "  Affiche la liste des mineurs connue") in
-  let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_miner !me)), "  Affiche mes informations") in
+  let show_miner = ("-show_node", Arg.Unit (fun () -> print_string (Node.string_of_dns !me.dns)), "  Affiche la liste des noeuds connue") in
+  let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_me ())), "  Affiche mes informations") in
   let clear = ("-clear", Arg.Unit (fun () -> let _ = Sys.command "clear" in ()), "  Supprime les affichages du terminal") in
   let debug = ("-debug", Arg.Unit (fun () -> debug ()), "  Lance la fonction de débug") in
 
@@ -222,11 +313,10 @@ let command_behavior line =
   print_newline ()
 
 let run_miner s1 =
-
   let _ = Thread.create serv_process s1 in
 
   while not !exit_miner do
-    print_string ("miner@" ^ (string_of_miner !me) ^ ">");
+    print_string ("miner_"^ string_of_int !me.lazy_part.id ^ "@" ^ (string_of_me ()) ^ ">");
     let line = read_line() in
     command_behavior line
   done
@@ -253,7 +343,7 @@ let init_me () =
       test_port (acc_port+1)
      in
   let real_port = test_port !my_port in
-  me := {addr = my_ip; port = real_port};
+  me := Node.init_fullnode (my_ip, real_port);
   s1
 
 let () =

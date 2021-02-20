@@ -38,6 +38,7 @@ type account = {
 type lazy_node = {
   id: int;
   accounts: account list;
+  my_internet_adress: Unix.inet_addr * int;
   mutable fullnode_info: (int * (Unix.inet_addr * int)) option
   }
 
@@ -56,21 +57,37 @@ type dns_translation = {
   }
 
 
+let string_of_dns_t dns_t =
+  let rec aux adress_list acc =
+    match adress_list with
+    |[] -> ""
+    |[adress] -> adress
+    |adress1 :: adress2 :: next ->
+      aux next (adress1 ^ "; " ^ adress2 ^ acc) in
+  let ip, port = dns_t.internet_adress in
+  "{" ^ string_of_int dns_t.id ^ ", [" ^ (aux dns_t.account_adress "") ^ "], " ^ string_of_inet_addr ip ^ ":" ^ string_of_int port ^ "}"
+
 (*
   Ce module permet de crée un ensemble de table de traduction DNS.
 *)
-  module DNS = Set.Make(
-    struct
-      type t = dns_translation
-      let compare d1 d2 = 
-        if d1.id = d2.id then
-          0
-        else if d1.id < d2.id then
-          -1
-        else
-          0
-    end
-  )
+module DNS = Set.Make(
+  struct
+    type t = dns_translation
+    let compare d1 d2 = 
+      if d1.id = d2.id then
+        0
+      else if d1.id < d2.id then
+        -1
+      else
+        1
+  end
+)
+
+
+let string_of_dns dns =
+  DNS.fold (fun dns_t acc ->
+    acc ^ "\n" ^ string_of_dns_t dns_t) dns ""
+
 
 (*
   Les noeuds plein ou full node sont les seconds types de noeuds existant dans le système distribué. Les full nodes ont les mêmes propriétés que les 
@@ -94,5 +111,16 @@ type full_node = {
   dns: DNS.t
   }
 
+
+let init_fullnode (ip, port) =
+  {
+    lazy_part = {
+      id = 1;
+      accounts = [];
+      my_internet_adress = (ip, port);
+      fullnode_info = None
+    };
+    dns = DNS.empty
+  }
 
   

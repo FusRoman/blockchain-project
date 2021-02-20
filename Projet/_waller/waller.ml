@@ -27,7 +27,7 @@ let send_msg msg =
 
   connect s1 (ADDR_INET(inet_addr_of_string !ip_miner, !port_miner));
   let out_chan = out_channel_of_descr s1 in
-  output_value out_chan (Transaction msg);
+  output_value out_chan msg;
   flush out_chan;
   shutdown s1 Unix.SHUTDOWN_ALL
 

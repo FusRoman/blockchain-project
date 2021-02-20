@@ -1,21 +1,21 @@
-open Miner
 open Block
 open Node
 
 
 
 (* Commande de communication entre les mineurs *)
-type serv_command =
-|New_miner of full_node
-|Recv_minerset of MinerSet.t
-|Connected_miner of miner
-|Broadcast of serv_command
-|Transaction of string
-|Transac_proof of string
+type 'a serv_command =
+  (*New_miner permet d'envoyer les infos nécessaires vers le mineur distant. Ces infos sont
+        - l'adresse du mineur (ip, port)
+        - l'ensemble des adresses de compte associés
+        - l'ensemble des mineurs qu'il connait *)
+|New_miner of Unix.inet_addr * int * string list * DNS.t
+|Change_id_and_dns of int * DNS.t
+|Broadcast of 'a serv_command * 'a
 
 exception ServCommandError
 
-
+(*
 let rec string_of_serv_command sc =
   match sc with
   |New_miner m -> "new_miner-" ^ string_of_miner m
@@ -46,6 +46,9 @@ let rec serv_command_of_string string_sc =
       |_ -> raise ServCommandError
     end
   |_ -> raise ServCommandError
+*)
+
+
 
   let failwithf fmt = Printf.ksprintf (fun s -> print_string s) fmt
   let s_ str = str
