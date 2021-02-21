@@ -30,7 +30,7 @@ let read_socket_timeout (timeout, working_function, args_work, timeout_function,
         error_function args_error
   |_, _, _ -> error_function args_error
 
-exception Broadcast_error
+exception Command_error of string
 
 let broadcast_miner set_miner f init_message =
   (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
@@ -126,36 +126,34 @@ let connect_to_miner distant_miner =
           output_value out_chan (New_miner (my_ip, my_port, account_adress, my_dns));
           flush out_chan;
           
-
-          (* On attend une réponse du mineur connecté *)
-          try
-          let received_command = input_value in_chan in
-          
-          print_string "on reçoit une réponse";
-          print_newline();
-
-          match received_command with
-          |Change_id_and_dns (my_id, new_dns) ->
+          if DNS.is_empty !me.dns then
             begin
-              print_string "mon id est ";
-              print_int my_id;
+              (* On attend une réponse du mineur connecté *)
+              let received_command = input_value in_chan in
+              
+              print_string "on reçoit une réponse";
               print_newline();
 
-              me := {
-                lazy_part = {
-                  !me.lazy_part with
-                  id = my_id
-                };
-                dns = new_dns
-              }
+              match received_command with
+              |Change_id_and_dns (my_id, new_dns) ->
+                begin
+                  print_string "mon id est ";
+                  print_int my_id;
+                  print_newline();
 
+                  me := {
+                    lazy_part = {
+                      !me.lazy_part with
+                      id = my_id
+                    };
+                    dns = new_dns
+                  }
+
+                end
+              |_ -> ();
+
+              shutdown s Unix.SHUTDOWN_ALL
             end
-          |_ -> ();
-
-          
-          shutdown s Unix.SHUTDOWN_ALL
-          with
-          |End_of_file -> print_string "fuck"
         end
     end
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
