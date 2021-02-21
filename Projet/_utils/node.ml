@@ -1,5 +1,6 @@
 open Unix
 open Block
+open Miscellaneous
 
 (* 
   Un compte est une collection de transaction envoyé ou reçu à l'adresse qui appartient au compte.
@@ -21,6 +22,11 @@ type account = {
   adress: string;
   mutable transaction: (int * Unix.tm option * string * euc) list
   }
+
+let string_of_account a =
+  "name : " ^ a.account_name ^
+  "\nbalance : " ^ string_of_float a.euc_balance ^
+  "\nadress : " ^ string_to_hexa a.adress
 
 
 (*

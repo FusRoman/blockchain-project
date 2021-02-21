@@ -1,6 +1,8 @@
 open Unix
 open Node
 open Command
+open Cryptokit
+open Miscellaneous
 
 
 (* L'adresse IP et le port du mineur courant *)
@@ -36,12 +38,6 @@ let get_my_connected_info () =
   )
 
 let update_me my_id new_dns =
-  print_string ("last dns : " ^ string_of_dns !me.dns);
-  print_newline();
-  print_string ("new_dns : " ^ string_of_dns new_dns);
-  print_newline();
-  print_string ("update dns : " ^ string_of_dns (DNS.union !me.dns new_dns));
-  flush_all();
   me := {
     lazy_part = {
       !me.lazy_part with
@@ -65,6 +61,8 @@ let get_free_id dns id =
 
 let string_of_me () =
   let my_ip, my_port = !me.lazy_part.my_internet_adress in
+
+  
   string_of_int !me.lazy_part.id ^ "#" ^ string_of_inet_addr my_ip ^ ":" ^ string_of_int my_port
 
 
@@ -77,3 +75,22 @@ let merge_and_return_new_dns dns_1 dns_2 =
       let free_id = get_free_id set_l2 !me.lazy_part.id in
       aux next (DNS.add {dns_t with id = free_id} set_l2) ((dns_t.internet_adress, free_id) :: new_id_list) in
   aux last_dns_list dns_2 []
+
+
+let create_account name =
+  let account_key = RSA.new_key 128 in
+  print_string "ok";
+  let new_account = {
+    account_name = name;
+    euc_balance = 0.0;
+    rsa_key = account_key;
+    adress = hash_of_public_key (get_public_key account_key);
+    transaction = []
+  } in
+  me := {
+    !me with
+    lazy_part = {
+      !me.lazy_part with
+      accounts = new_account :: !me.lazy_part.accounts
+    }
+  }

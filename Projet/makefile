@@ -18,7 +18,7 @@ miner_serv.exe: node.cmo miner.cmo command.cmo block.cmo _build _exec
 
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
 
-miner.cmo: _build node.cmo
+miner.cmo: _build command.cmo node.cmo
 	ocamlfind $(OC) -c -I $(BUILD) $(PACK) $(MINER)miner.ml
 
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)

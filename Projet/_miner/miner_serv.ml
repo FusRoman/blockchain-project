@@ -86,23 +86,6 @@ let send_msg_to_miner id dns msg =
   Unix.shutdown s Unix.SHUTDOWN_ALL
 
 
-let send_msg_to_miner_with_ip (ip, port) msg =
-  (* On créé la socket puis on la connecte vers le mineur de la liste *)
-  let s = socket PF_INET SOCK_STREAM 0 in
-  setsockopt s SO_REUSEADDR true;
-  Unix.connect s (ADDR_INET(ip, port));
-
-  (* On prépare le message à envoyer. *)
-  let out_chan = out_channel_of_descr s in
-
-  (* On envoie le message *)
-  output_value out_chan msg;
-  flush out_chan;
-
-  (*On ferme la socket et on passe au mineur suivant *)
-  Unix.shutdown s Unix.SHUTDOWN_ALL
-
-
 (*
         Cette fonction permet d'initier la connexion initial entre deux mineurs
 *)
@@ -130,17 +113,10 @@ let connect_to_miner distant_miner =
             begin
               (* On attend une réponse du mineur connecté *)
               let received_command = input_value in_chan in
-              
-              print_string "on reçoit une réponse";
-              print_newline();
 
               match received_command with
               |Change_id_and_dns (my_id, new_dns) ->
                 begin
-                  print_string "mon id est ";
-                  print_int my_id;
-                  print_newline();
-
                   me := {
                     lazy_part = {
                       !me.lazy_part with
@@ -176,45 +152,37 @@ let receive_msg sc =
   try
     (* On receptionne un message sur le canal *)
     let received_message = input_value in_chan in
-    print_string "on a reçu le msg";
-    print_newline();
-
     begin
       (* On traite la commande correspondant au message*)
       match received_message with
-      |New_miner (distant_ip, distant_port, account_adress, distant_dns) ->
+      |New_miner (distant_ip, distant_port, distant_adress, distant_dns) ->
         begin
-          print_string "il s'agit d'un nouveau mineur, son id sera :";
-          print_newline();
-
+          (* Un nouveau mineur se connecte *)
           let my_dns_t = {id = !me.lazy_part.id; account_adress = get_all_accounts_adress(); internet_adress = !me.lazy_part.my_internet_adress} in
 
+          (* On test si son DNS est vide ou non *)
           if not (DNS.is_empty distant_dns) then
             begin
-              print_string (string_of_dns !me.dns);
-              print_newline();
 
-              print_string (string_of_dns distant_dns);
-              print_newline();
-
+              (* Son DNS n'est pas vide. Cela signifie qu'il y a d'autre mineurs qui sont connecté à celui-ci.
+                  Il faut réattribué les ids de chacun des mineurs que conneit le mineur qui s'est connecté à nous de façon à ce que les les ids de tous le monde soit unique *)
               let new_dns, all_new_id = merge_and_return_new_dns distant_dns !me.dns in
 
-              print_string (string_of_dns new_dns);
-              print_newline();
-
-
+              (* On donne un id unique au mineurs qui s'est connecté à nous. *)
               let free_id = get_free_id new_dns !me.lazy_part.id in
+              (* On crée son dns. *)
               let new_dns = DNS.add {
                 id = free_id;
-                account_adress;
+                account_adress = distant_adress;
                 internet_adress = (distant_ip, distant_port)
               } new_dns in
 
-
+              (* On envoie le nouveau dns a tous les mineurs sans exceptions *)
               DNS.iter (fun dns_t ->
                 let real_new_dns = DNS.add my_dns_t new_dns in
                 send_msg_to_miner dns_t.id new_dns (Change_id_and_dns (dns_t.id, real_new_dns))) new_dns;
 
+              (* On met a jour notre propre dns. *)
               me := {
                 !me with
                 dns = new_dns
@@ -222,26 +190,20 @@ let receive_msg sc =
             end
           else
             begin
+              (* Le dns du nouveau mineur est vide *)
               let free_id = get_free_id !me.dns !me.lazy_part.id in
-              print_int free_id;
-              print_newline();
 
-
+              (* On lui envoie son id unique et on ajoute notre propre dns a son dns *)
               output_value out_chan (Change_id_and_dns (free_id, DNS.add my_dns_t !me.dns));
               flush out_chan;
 
+              (* On transmet l'info a tous les mineurs que l'on connait qu'un nouveau mineur est arrivé. *)
+              broadcast_miner !me.dns (fun m -> m) (Broadcast (New_miner (distant_ip, distant_port, distant_adress, distant_dns), free_id));
 
-              print_string "on a envoyé la réponse";
-              print_newline();
-              print_string "debut broadcast";
-              print_newline();
-
-
-              broadcast_miner !me.dns (fun m -> m) (Broadcast (New_miner (distant_ip, distant_port, account_adress, distant_dns), free_id));
-
+              (* On ajoute le nouveau mineur a notre dns. *)
               let (new_dns_t: Node.dns_translation) = {
                 id = free_id;
-                account_adress;
+                account_adress = distant_adress;
                 internet_adress = (distant_ip, distant_port)
               } in
               update_me !me.lazy_part.id (Node.DNS.add new_dns_t distant_dns)
@@ -260,6 +222,7 @@ let receive_msg sc =
           |_ -> ()
         end
       |Change_id_and_dns (new_id, new_dns) ->
+        (* Un changement d'id arrive. Le mineur met a jour son id et son dns *)
         let real_new_dns = DNS.filter (fun dns_t -> dns_t.id != new_id) new_dns in
         me := {
           lazy_part = {
@@ -304,8 +267,9 @@ let command_behavior line =
   let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_me ())), "  Affiche mes informations") in
   let clear = ("-clear", Arg.Unit (fun () -> let _ = Sys.command "clear" in ()), "  Supprime les affichages du terminal") in
   let debug = ("-debug", Arg.Unit (fun () -> debug ()), "  Lance la fonction de débug") in
+  let create_account = ("-new_account", Arg.String create_account, " Créé un nouveau compte et lui donne un nom") in
 
-  let speclist = [connect; exit; show_miner; show_me; clear; debug] in
+  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()
@@ -314,7 +278,7 @@ let run_miner s1 =
   let _ = Thread.create serv_process s1 in
 
   while not !exit_miner do
-    print_string ("miner_"^ string_of_int !me.lazy_part.id ^ "@" ^ (string_of_me ()) ^ ">");
+    print_string ("miner_"^ string_of_int !me.lazy_part.id ^ ">");
     let line = read_line() in
     command_behavior line
   done
