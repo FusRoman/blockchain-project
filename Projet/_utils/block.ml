@@ -154,7 +154,7 @@ type block = {
   }
 
 
-let lowest_target = "000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+let lowest_target = "00001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
 (*
  Le bloc genesis est le premier bloc de la blockchain.

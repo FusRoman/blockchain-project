@@ -197,22 +197,15 @@ let receive_msg sc =
           if dns_t.id = distant_id then
             dns_t.account_adress <- new_adress :: dns_t.account_adress) !me.dns
       |New_block (pos_block, block) ->
-        begin
-          print_string ("new block incoming : " ^ string_of_int pos_block);
-          print_newline();
-          
+        begin    
           lock mutex_new_bloc;
 
           let blockchain_length = List.length !me.blockchain in
-          print_string ("my blockchain : " ^ string_of_int blockchain_length);
-          print_newline();
           if pos_block = blockchain_length + 1 then
             begin
               if verif_block block.block_h then
                 begin
                   notify_new_block := true;
-                  print_string "accepted block";
-                  print_newline();
                   let new_me = {
                     !me with
                     blockchain = block :: !me.blockchain
@@ -222,29 +215,20 @@ let receive_msg sc =
                 end
               else
                 begin
-                  print_string "Le hash du bloc précédent ne correspond pas.";
-                  print_newline();
                   unlock mutex_new_bloc
                 end
             end
           else if pos_block > blockchain_length then
             begin
-              print_string "request blockchain";
-              print_newline();
               output_value out_chan Request_blockchain
             end
         end
       |Request_blockchain ->
         begin
-          print_string "send my blockchain";
-          print_newline();
           output_value out_chan (Send_blockchain !me.blockchain)
         end
       |Send_blockchain new_blockchain ->
         begin
-          print_string "change my blockchain";
-          print_newline();
-
           notify_new_block := true;
           let new_me = {
             !me with
@@ -277,11 +261,15 @@ let serv_process sock =
 let debug () =
   print_newline();
 
-  print_int (List.length !me.blockchain);
-
-  print_newline();
-
-  print_string ("verif blockchain : " ^ (string_of_bool (verif_blockchain !me.blockchain)));
+  match !me.lazy_part.connected_account with
+  |None -> ()
+  |Some n ->
+    let my_output_tr = get_real_output_account n in
+    List.iter (fun (tr, out) ->
+      print_newline();
+      print_float out.value;
+      print_newline();
+      ) my_output_tr;
 
   print_newline()
   
@@ -299,9 +287,11 @@ let command_behavior line =
   let create_account = ("-new_a", Arg.String create_account, " Créé un nouveau compte et lui donne un nom") in
   let connect_account = ("-co_a", Arg.String connect_account, " Permet de connecter le mineur a un compte. Cela lance le minage sur ce compte.") in
   let disconnect_account = ("-dis_a", Arg.Unit disconnect_account, " Se deconnecte du compte.") in
+  let stat_blockchain = ("-stat_chain", Arg.Unit stat_chain, " Affiche les statistiques de la blockchain") in
+  let balance = ("-show_balance", Arg.Unit show_my_balance, " Affiche le solde du compte") in
 
 
-  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account; connect_account; disconnect_account] in
+  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account; connect_account; disconnect_account; stat_blockchain; balance] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()

@@ -16,6 +16,7 @@ type 'a serv_command =
 |New_block of int * block
 |Request_blockchain
 |Send_blockchain of block list
+|Send_transaction of transaction
 
 exception ServCommandError
 
