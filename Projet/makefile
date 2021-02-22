@@ -6,7 +6,7 @@ WALLER = _waller/
 UTILS = _utils/
 LIB = -I +threads threads.cma
 PACK = -package cryptokit -linkpkg
-CMO =  $(BUILD)miscellaneous.cmo $(BUILD)node.cmo $(BUILD)miner.cmo $(BUILD)command.cmo $(BUILD)block.cmo
+CMO =  $(BUILD)miscellaneous.cmo $(BUILD)block.cmo $(BUILD)node.cmo $(BUILD)miner.cmo $(BUILD)command.cmo
 
 all: miner_serv.exe waller.exe
 	clear
@@ -19,7 +19,7 @@ miner_serv.exe: node.cmo miner.cmo command.cmo block.cmo _build _exec
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
 
 miner.cmo: _build command.cmo node.cmo
-	ocamlfind $(OC) -c -I $(BUILD) $(PACK) $(MINER)miner.ml
+	ocamlfind $(OC) -c $(PACK) $(LIB) -I $(BUILD) $(MINER)miner.ml
 
 	mv $(MINER)*.cmo $(MINER)*.cmi $(BUILD)
 

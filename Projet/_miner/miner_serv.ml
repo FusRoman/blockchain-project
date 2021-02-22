@@ -32,59 +32,6 @@ let read_socket_timeout (timeout, working_function, args_work, timeout_function,
 
 exception Command_error of string
 
-let broadcast_miner set_miner f init_message =
-  (* Problème si un mineur s'est déco et qu'il est toujours dans la liste -> rattraper l'exception ECONNREFUSED *)
-  let dns_list = Node.DNS.elements set_miner in
-  let rec iter_list (miner_list: Node.dns_translation list) message =
-    match miner_list with
-    |[] -> ()
-    |miner :: next ->
-      begin
-        let ip, port = miner.internet_adress in
-
-        (* On créé la socket puis on la connecte vers le mineur de la liste *)
-        let s = socket PF_INET SOCK_STREAM 0 in
-        setsockopt s SO_REUSEADDR true;
-        Unix.connect s (ADDR_INET(ip, port));
-
-        (* On prépare le message à envoyer. *)
-        let out_chan = out_channel_of_descr s in
-
-        let new_msg = f message in
-
-        (* On envoie le message *)
-        output_value out_chan new_msg;
-        flush out_chan;
-
-        (*On ferme la socket et on passe au mineur suivant *)
-        Unix.shutdown s Unix.SHUTDOWN_ALL;
-
-        (* On recommence avec le mineur suivant et le nouveau message *)
-        iter_list next new_msg
-      end in
-  iter_list dns_list init_message
-
-
-let send_msg_to_miner id dns msg =
-  let miner =  DNS.choose (DNS.filter (fun dns_t -> dns_t.id = id) dns) in
-
-  let ip, port = miner.internet_adress in
-
-  (* On créé la socket puis on la connecte vers le mineur de la liste *)
-  let s = socket PF_INET SOCK_STREAM 0 in
-  setsockopt s SO_REUSEADDR true;
-  Unix.connect s (ADDR_INET(ip, port));
-
-  (* On prépare le message à envoyer. *)
-  let out_chan = out_channel_of_descr s in
-
-  (* On envoie le message *)
-  output_value out_chan msg;
-  flush out_chan;
-
-  (*On ferme la socket et on passe au mineur suivant *)
-  Unix.shutdown s Unix.SHUTDOWN_ALL
-
 
 (*
         Cette fonction permet d'initier la connexion initial entre deux mineurs
@@ -115,16 +62,18 @@ let connect_to_miner distant_miner =
               let received_command = input_value in_chan in
 
               match received_command with
-              |Change_id_and_dns (my_id, new_dns) ->
+              |Change_id_dns_and_blockchain (my_id, new_dns, new_blockchain) ->
                 begin
-                  me := {
+                  let new_me = {
+                    !me with
                     lazy_part = {
                       !me.lazy_part with
                       id = my_id
                     };
-                    dns = new_dns
-                  }
-
+                    dns = new_dns;
+                    blockchain = new_blockchain
+                  } in
+                  update_me new_me
                 end
               |_ -> ();
 
@@ -180,13 +129,14 @@ let receive_msg sc =
               (* On envoie le nouveau dns a tous les mineurs sans exceptions *)
               DNS.iter (fun dns_t ->
                 let real_new_dns = DNS.add my_dns_t new_dns in
-                send_msg_to_miner dns_t.id new_dns (Change_id_and_dns (dns_t.id, real_new_dns))) new_dns;
+                send_msg_to_miner dns_t.id new_dns (Change_id_dns_and_blockchain (dns_t.id, real_new_dns, !me.blockchain))) new_dns;
 
               (* On met a jour notre propre dns. *)
-              me := {
+              let new_me = {
                 !me with
                 dns = new_dns
-              }
+              } in
+              update_me new_me
             end
           else
             begin
@@ -194,7 +144,7 @@ let receive_msg sc =
               let free_id = get_free_id !me.dns !me.lazy_part.id in
 
               (* On lui envoie son id unique et on ajoute notre propre dns a son dns *)
-              output_value out_chan (Change_id_and_dns (free_id, DNS.add my_dns_t !me.dns));
+              output_value out_chan (Change_id_dns_and_blockchain (free_id, DNS.add my_dns_t !me.dns, !me.blockchain));
               flush out_chan;
 
               (* On transmet l'info a tous les mineurs que l'on connait qu'un nouveau mineur est arrivé. *)
@@ -206,7 +156,11 @@ let receive_msg sc =
                 account_adress = distant_adress;
                 internet_adress = (distant_ip, distant_port)
               } in
-              update_me !me.lazy_part.id (Node.DNS.add new_dns_t distant_dns)
+              let new_me = {
+                !me with
+                dns = DNS.add new_dns_t !me.dns
+              } in
+              update_me new_me
             end
         end
       |Broadcast (m, id) ->
@@ -218,19 +172,88 @@ let receive_msg sc =
             account_adress;
             internet_adress = (distant_ip, distant_port)
           } in
-          update_me !me.lazy_part.id (Node.DNS.add new_dns_t !me.dns)
+          let new_me = {
+                !me with
+                dns = DNS.add new_dns_t !me.dns
+              } in
+          update_me new_me
           |_ -> ()
         end
-      |Change_id_and_dns (new_id, new_dns) ->
+      |Change_id_dns_and_blockchain (new_id, new_dns, new_blockchain) ->
         (* Un changement d'id arrive. Le mineur met a jour son id et son dns *)
         let real_new_dns = DNS.filter (fun dns_t -> dns_t.id != new_id) new_dns in
-        me := {
+        let new_me = {
+          !me with
           lazy_part = {
             !me.lazy_part with
             id = new_id
           };
-          dns = real_new_dns
-        }
+          dns = real_new_dns;
+          blockchain = if (List.length new_blockchain) > (List.length !me.blockchain) then new_blockchain else !me.blockchain
+        } in
+        update_me new_me
+      |New_account (distant_id, new_adress) ->
+        DNS.iter (fun dns_t ->
+          if dns_t.id = distant_id then
+            dns_t.account_adress <- new_adress :: dns_t.account_adress) !me.dns
+      |New_block (pos_block, block) ->
+        begin
+          print_string ("new block incoming : " ^ string_of_int pos_block);
+          print_newline();
+          
+          lock mutex_new_bloc;
+
+          let blockchain_length = List.length !me.blockchain in
+          print_string ("my blockchain : " ^ string_of_int blockchain_length);
+          print_newline();
+          if pos_block = blockchain_length + 1 then
+            begin
+              if verif_block block.block_h then
+                begin
+                  notify_new_block := true;
+                  print_string "accepted block";
+                  print_newline();
+                  let new_me = {
+                    !me with
+                    blockchain = block :: !me.blockchain
+                  } in
+                  update_me new_me;
+                  unlock mutex_new_bloc;
+                end
+              else
+                begin
+                  print_string "Le hash du bloc précédent ne correspond pas.";
+                  print_newline();
+                  unlock mutex_new_bloc
+                end
+            end
+          else if pos_block > blockchain_length then
+            begin
+              print_string "request blockchain";
+              print_newline();
+              output_value out_chan Request_blockchain
+            end
+        end
+      |Request_blockchain ->
+        begin
+          print_string "send my blockchain";
+          print_newline();
+          output_value out_chan (Send_blockchain !me.blockchain)
+        end
+      |Send_blockchain new_blockchain ->
+        begin
+          print_string "change my blockchain";
+          print_newline();
+
+          notify_new_block := true;
+          let new_me = {
+            !me with
+            blockchain = new_blockchain
+          } in
+          update_me new_me;
+
+          unlock mutex_new_bloc
+        end
       end;
       
     Unix.shutdown sc Unix.SHUTDOWN_ALL
@@ -244,8 +267,6 @@ let serv_process sock =
   listen sock 5;
   while not !exit_miner do
     let sc, _ = accept sock in
-    print_string "msg entrant";
-    print_newline();
     let _ = Thread.create receive_msg sc in
     flush_all ();
     ()
@@ -254,7 +275,15 @@ let serv_process sock =
 
 (* Fonction de débug permettant de tester des trucs dans l'environnement du mineur *)
 let debug () =
-  ()
+  print_newline();
+
+  print_int (List.length !me.blockchain);
+
+  print_newline();
+
+  print_string ("verif blockchain : " ^ (string_of_bool (verif_blockchain !me.blockchain)));
+
+  print_newline()
   
   
 
@@ -267,18 +296,29 @@ let command_behavior line =
   let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_me ())), "  Affiche mes informations") in
   let clear = ("-clear", Arg.Unit (fun () -> let _ = Sys.command "clear" in ()), "  Supprime les affichages du terminal") in
   let debug = ("-debug", Arg.Unit (fun () -> debug ()), "  Lance la fonction de débug") in
-  let create_account = ("-new_account", Arg.String create_account, " Créé un nouveau compte et lui donne un nom") in
+  let create_account = ("-new_a", Arg.String create_account, " Créé un nouveau compte et lui donne un nom") in
+  let connect_account = ("-co_a", Arg.String connect_account, " Permet de connecter le mineur a un compte. Cela lance le minage sur ce compte.") in
+  let disconnect_account = ("-dis_a", Arg.Unit disconnect_account, " Se deconnecte du compte.") in
 
-  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account] in
+
+  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account; connect_account; disconnect_account] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()
 
+let print_commandline () =
+  match !me.lazy_part.connected_account with
+  |None ->
+    print_string ("miner_"^ string_of_int !me.lazy_part.id ^ ">");
+  |Some s ->
+    print_string ("miner_"^ string_of_int !me.lazy_part.id ^ "#" ^ s ^ ">")
+
 let run_miner s1 =
   let _ = Thread.create serv_process s1 in
+  let _ = Thread.create mine_block Z.zero in
 
   while not !exit_miner do
-    print_string ("miner_"^ string_of_int !me.lazy_part.id ^ ">");
+    print_commandline();
     let line = read_line() in
     command_behavior line
   done
@@ -305,7 +345,7 @@ let init_me () =
       test_port (acc_port+1)
      in
   let real_port = test_port !my_port in
-  me := Node.init_fullnode (my_ip, real_port);
+  update_me (init_fullnode (my_ip, real_port));
   s1
 
 let () =

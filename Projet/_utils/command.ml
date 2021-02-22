@@ -10,8 +10,12 @@ type 'a serv_command =
         - l'ensemble des adresses de compte associés
         - l'ensemble des mineurs qu'il connait *)
 |New_miner of Unix.inet_addr * int * string list * DNS.t
-|Change_id_and_dns of int * DNS.t
+|Change_id_dns_and_blockchain of int * DNS.t * block list
 |Broadcast of 'a serv_command * 'a
+|New_account of int * string
+|New_block of int * block
+|Request_blockchain
+|Send_blockchain of block list
 
 exception ServCommandError
 

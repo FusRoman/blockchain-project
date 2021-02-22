@@ -80,10 +80,12 @@ inputs: input_tr list;
 outputs: output_tr list
 }
 
-
 let string_of_input_tr itr =
+  let size, n, e = itr.public_key in
   itr.previous_tr_hash ^
-  string_of_int itr.previous_out_index
+  string_of_int itr.previous_out_index ^
+  string_of_int size ^
+  n ^ e
 
 let string_of_output_tr otr =
   string_of_float otr.value ^
@@ -152,7 +154,7 @@ type block = {
   }
 
 
-let lowest_target = "00000DFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+let lowest_target = "000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
 (*
  Le bloc genesis est le premier bloc de la blockchain.
@@ -160,7 +162,7 @@ let lowest_target = "00000DFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 let block_genesis =
   {
     block_h = {
-      previous_hash = "";
+      previous_hash = "toto est le plus grand testeur";
       hash_merkelroot = "";
       timestamp = 0.0;
       target = Z.of_string_base 16 lowest_target;
@@ -176,35 +178,8 @@ let string_of_block_header bh =
   Z.to_string bh.target ^ "   " ^
   Z.to_string bh.nonce
 
-let hash_of_block_header block =
-  sha3_of_string (string_of_block_header block.block_h)
-
-let empty_tr = {inputs = []; outputs = []}
-let new_transaction = ref empty_tr
-let new_transaction_incoming = ref false
-
-let rec hashcash_proof_of_work block =
-  let block = if !new_transaction_incoming then
-                {
-                  block with
-                  transactions = !new_transaction :: block.transactions
-                }
-              else
-                block in
-  new_transaction_incoming := false;
-  new_transaction := empty_tr;
-  let hash_header = hash_of_block_header block in
-  if zint_of_hash hash_header < block.block_h.target then
-    block
-  else
-    hashcash_proof_of_work {
-      block with
-      block_h = {
-        block.block_h with
-        timestamp = Unix.time();
-        nonce = Z.add block.block_h.nonce (Z.of_int 1);
-      }
-    }
+let hash_of_block_header header =
+  sha3_of_string (string_of_block_header header)
 
 
 

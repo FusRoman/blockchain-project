@@ -13,14 +13,15 @@ open Miscellaneous
   Un compte a également un nom donné par l'utilisateur pour la commodité.
 
   Le compte ne contient pas d'argent bien qu'une variable euc_balance (Earth Unified Currency) existe. Celle ci est juste un indicateur de nombre de euc 
-  associé à cette adresse après le parcours des transactions confirmé dans la blockchain.
+  associé à cette adresse après le parcours des transactions confirmé dans la blockchain. Pour calculer l'euc_balance, il faut parcourir les transactions de la blockchain et
+  récupéré tout les outputs de chaque transactions. On vérifie ensuite que ces outputs ne sont pas référencé par des transactions plus récente. Si c'est le cas, le champs value 
+  de cette output est ajouté à la balance.
 *)
 type account = {
   account_name : string;
   euc_balance: euc;
   rsa_key: Cryptokit.RSA.key;
-  adress: string;
-  mutable transaction: (int * Unix.tm option * string * euc) list
+  adress: string
   }
 
 let string_of_account a =
@@ -45,7 +46,8 @@ type lazy_node = {
   id: int;
   accounts: account list;
   my_internet_adress: Unix.inet_addr * int;
-  mutable fullnode_info: (int * (Unix.inet_addr * int)) option
+  mutable fullnode_info: (int * (Unix.inet_addr * int)) option;
+  connected_account: string option
   }
 
 
@@ -114,7 +116,9 @@ let string_of_dns dns =
 *)
 type full_node = {
   lazy_part: lazy_node;
-  dns: DNS.t
+  blockchain: block list;
+  dns: DNS.t;
+  current_coinbase: float
   }
 
 
@@ -124,9 +128,12 @@ let init_fullnode (ip, port) =
       id = 1;
       accounts = [];
       my_internet_adress = (ip, port);
-      fullnode_info = None
+      fullnode_info = None;
+      connected_account = None
     };
-    dns = DNS.empty
+    blockchain = [block_genesis];
+    dns = DNS.empty;
+    current_coinbase = 50.0
   }
 
   

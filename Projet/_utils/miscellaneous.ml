@@ -109,7 +109,7 @@ type merkel_tree =
 
 let empty = Leaf
 
-let make_leaf x = Node (hash_zint x, Leaf, Leaf, 0)
+let make_leaf x = Node (x, Leaf, Leaf, 0)
 
 let make_node t1 t2 =
   match t1, t2 with
