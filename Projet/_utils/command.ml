@@ -7,15 +7,17 @@ open Node
 type 'a serv_command =
   (*New_miner permet d'envoyer les infos nécessaires vers le mineur distant. Ces infos sont
         - l'adresse du mineur (ip, port)
-        - l'ensemble des adresses de compte associés
         - l'ensemble des mineurs qu'il connait *)
-|New_miner of Unix.inet_addr * int * string list * DNS.t
+|New_miner of Unix.inet_addr * int * DNS.t
+|New_waller of Unix.inet_addr * int
 |Change_info of int * DNS.t * block list
 |Broadcast of 'a serv_command * 'a
 |New_block of int * int * block
 |Request_blockchain of int
 |Send_blockchain of block list
 |Send_transaction of transaction
+|Request_transaction of string * int * string * string
+|Send_wt of (Block.transaction * string * string list * int) list
 
 exception ServCommandError
 
