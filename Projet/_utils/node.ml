@@ -44,8 +44,17 @@ type lazy_node = {
   id: int;
   accounts: account list;
   my_internet_adress: Unix.inet_addr * int;
-  mutable fullnode_info: (int * (Unix.inet_addr * int)) option;
+  mutable fullnode_info: (Unix.inet_addr * int) option;
   connected_account: string option
+  }
+
+let init_lazynode (ip, port) =
+  {
+    id = 1;
+    accounts = [];
+    my_internet_adress = (ip, port);
+    fullnode_info = None;
+    connected_account = None
   }
 
 
