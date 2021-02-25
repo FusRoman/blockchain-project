@@ -107,28 +107,35 @@ let broadcast_miner set_miner f init_message =
 
 
 let send_msg_to_miner id dns msg =
-  let miner =  DNS.choose (DNS.filter (fun dns_t -> dns_t.id = id) dns) in
+  try
+    let miner =  DNS.choose (DNS.filter (fun dns_t -> dns_t.id = id) dns) in
 
-  let ip, port = miner.internet_adress in
+    let ip, port = miner.internet_adress in
 
-  (* On créé la socket puis on la connecte vers le mineur de la liste *)
-  let s = socket PF_INET SOCK_STREAM 0 in
-  setsockopt s SO_REUSEADDR true;
-  Unix.connect s (ADDR_INET(ip, port));
+    (* On créé la socket puis on la connecte vers le mineur de la liste *)
+    let s = socket PF_INET SOCK_STREAM 0 in
+    setsockopt s SO_REUSEADDR true;
+    Unix.connect s (ADDR_INET(ip, port));
 
-  (* On prépare le message à envoyer. *)
-  let out_chan = out_channel_of_descr s in
+    (* On prépare le message à envoyer. *)
+    let out_chan = out_channel_of_descr s in
 
-  (* On envoie le message *)
-  output_value out_chan msg;
-  flush out_chan;
+    (* On envoie le message *)
+    output_value out_chan msg;
+    flush out_chan;
 
-  Unix.shutdown s Unix.SHUTDOWN_ALL;
-  close s
+    Unix.shutdown s Unix.SHUTDOWN_ALL;
+    close s
+  with
+  |Not_found ->
+    print_string "not found";
+    ()
 
 
 
 let merge_and_return_new_dns dns_1 dns_2 =
+  let union_dns = DNS.union dns_1 dns_2 in
+  DNS.iter (fun dns_t -> print_string (string_of_dns_t dns_t); print_newline()) union_dns;
   let last_dns_list = DNS.elements dns_1 in
   let rec aux l1 set_l2 new_id_list =
     match l1 with
@@ -206,8 +213,8 @@ let merkel_of_tr_list trs =
 
 let create_generation_tr account =
   let h_rng = Cryptokit.Random.hardware_rng () in
-  let rand_bytes = Bytes.create 30 in
-  h_rng#random_bytes rand_bytes 0 29;
+  let rand_bytes = Bytes.create 40 in
+  h_rng#random_bytes rand_bytes 0 39;
   let str_alea = Bytes.to_string rand_bytes in
   let input_gen = {
     previous_tr_hash = str_alea;
@@ -301,14 +308,12 @@ let rec mine_block nonce =
   |Some name_account ->
 
     lock mutex_new_transaction;
+    lock mutex_new_bloc;
     let new_header = create_header name_account nonce in
-    unlock mutex_new_transaction;
 
     let target = (List.hd !me.blockchain).block_h.target in
 
     let hash_h = hash_of_block_header new_header in
-    lock mutex_new_bloc;
-    lock mutex_new_transaction;
     if zint_of_hash hash_h < target && Cryptokit.string_equal new_header.previous_hash (hash_of_block_header (List.hd !me.blockchain).block_h) then
       begin
 
@@ -316,7 +321,10 @@ let rec mine_block nonce =
           block_h = new_header;
           transactions = !new_transaction
         } in
-
+        (*
+        print_bloc new_bloc;
+        print_string "------------------------------------------------";
+        print_newline();*)
         broadcast_miner !me.dns (fun m -> m) (New_block (!me.lazy_part.id, List.length !me.blockchain + 1, new_bloc));
         let new_me = {
           !me with
@@ -325,14 +333,14 @@ let rec mine_block nonce =
         update_me new_me;
         new_transaction := [];
         flush_all();
-        unlock mutex_new_transaction;
         unlock mutex_new_bloc;
+        unlock mutex_new_transaction;
         mine_block Z.zero
       end
     else
       begin
-        unlock mutex_new_transaction;
         unlock mutex_new_bloc;
+        unlock mutex_new_transaction;
         mine_block (Z.add nonce Z.one)
       end
 
@@ -372,7 +380,9 @@ let stat_chain () =
   print_string ("\tIntégrité de la blockchain : " ^ (string_of_bool (verif_blockchain !me.blockchain)));
   print_newline()
 
-let get_real_output_account name_account =
+
+(* Cette fonction permet de renvoyer les transactions et les outputs non référencé par une autre transactions et appartenant à mon compte *)
+(*let get_real_output_account name_account =
   let current_account = get_account_by_name name_account in
   let a_adress = current_account.adress in
 
@@ -415,12 +425,76 @@ let get_real_output_account name_account =
             all_real_tr_out
       ) real_tr_out tr.outputs
    ) [] all_non_ref_tr
+*)
+
+
+(* 
+Cette fonction parcours la blockchain et renvoie
+  -la liste des prev_hash de chaque transaction (non utile)
+  -une liste de n-uplet. Chaque n-uplet n-uplets est :
+      -la transaction associé au compte
+      -la racine de l'arbre de merkel du bloc
+      -l'ensemble des hash des transactions permettant de recrée la preuve
+      -l'id du block pour vérifié si la transaction est confirmé dans la blockchain
+  -une liste de n-uplet. Chaque n-uplet est
+      -la transaction non rérérencé associé au compte
+      -la racine de l'arbre de merkel du bloc
+      -l'ensemble des hash des transactions permettant de recrée la preuve
+      -l'id du block pour vérifié si la transaction est confirmé dans la blockchain  
+  -l'ensemble des outputs non référencé du compte (la quantité de cryptomonnaie qu'il a actuellement)
+  -un compteur pour les id de block (non utile)
+  -un compteur pour les id de transaction (non utile)
+*)
+let get_tr_info account_adress account_key =
+
+  List.fold_left (fun (prev_hash, my_tr, tr_output, my_output, id_block, id_tr) block ->
+
+    let merkel_root = block.block_h.hash_merkelroot in
+    let merkel_tree_bloc = (make (List.map (fun tr -> string_to_hexa (sha3_of_string (string_of_transaction tr))) block.transactions)) in
+
+    List.fold_left (fun (prev_hash, my_tr, tr_output, my_output, id_block, id_tr) current_tr ->
+    
+      let proof_tr = proof merkel_tree_bloc id_tr in
+
+        let hash_tr = sha3_of_string (string_of_transaction current_tr) in
+        
+        let input_treatment (prev_hash, tr_input) input =
+          if public_key_equal account_key input.public_key then
+            (
+              input.previous_tr_hash :: prev_hash,
+              (current_tr, merkel_root, proof_tr, id_block) :: my_tr
+            )
+          else
+            (
+              input.previous_tr_hash :: prev_hash,
+              my_tr
+            ) in
+
+
+        let output_treatment my_output output =
+          if String.equal account_adress output.adress then
+            output :: my_output
+          else
+            my_output in
+
+        if List.mem hash_tr prev_hash then
+          let new_prev_hash, new_my_tr = List.fold_left input_treatment (prev_hash, my_tr) current_tr.inputs in
+          (new_prev_hash, new_my_tr, tr_output, my_output, id_block + 1, id_tr + 1)
+        else
+          let new_prev_hash, new_my_tr = List.fold_left input_treatment (prev_hash, my_tr) current_tr.inputs in
+          let my_new_output = List.fold_left output_treatment my_output current_tr.outputs in
+          (new_prev_hash, new_my_tr, ((current_tr, merkel_root, proof_tr, id_block)::tr_output), my_new_output, id_block + 1, id_tr + 1)
+
+
+      ) (prev_hash, my_tr, tr_output, my_output, id_block, 0) block.transactions) ([], [], [], [], 0, 0) !me.blockchain
+
+
 
 
 let compute_account_balance name_account =
   let my_account = get_account_by_name name_account in
-  let my_output_tr = get_real_output_account name_account in
-  List.fold_left (fun acc (_, out) -> if Cryptokit.string_equal my_account.adress out.adress then acc +. out.value else acc) 0.0 my_output_tr
+  let _, _, _, my_output_tr, _, _ = get_tr_info my_account.adress (get_public_key my_account.rsa_key) in
+  List.fold_left (fun acc out -> acc +. out.value) 0.0 my_output_tr
 
 let show_my_balance () =
   match !me.lazy_part.connected_account with
@@ -435,8 +509,8 @@ let create_transaction_for_miners adress value =
   |Some s ->
     begin
       let my_account = get_account_by_name s in
-      let all_my_tr = get_real_output_account s in
-      let account_balance = List.fold_left (fun acc (_, out) -> if Cryptokit.string_equal my_account.adress out.adress then acc +. out.value else acc) 0.0 all_my_tr in
+      let _, _, all_my_tr, my_output_tr, _, _ = get_tr_info s (get_public_key my_account.rsa_key) in
+      let account_balance = compute_account_balance s in
 
 
       if value > account_balance then
@@ -446,7 +520,7 @@ let create_transaction_for_miners adress value =
           let rec aux tr_list acc_v acc_tr =
             match tr_list with
             |[] -> acc_tr, acc_v
-            |(tr, _) :: next ->
+            |(tr, _, _, _) :: next ->
               let balance_tr = List.fold_left (fun acc out -> if Cryptokit.string_equal my_account.adress out.adress then acc +. out.value else acc) 0.0 tr.outputs in
               if acc_v +. balance_tr >= value then
                 tr :: acc_tr, acc_v +. balance_tr
@@ -490,6 +564,12 @@ let create_transaction_for_miners adress value =
         end
       end
 
+let gen_tr tr_info =
+  let tr_split = String.split_on_char '>' tr_info in
+  match tr_split with
+  |[adress; value] -> create_transaction_for_miners adress (float_of_string value)
+  |[]|_ -> print_string "error gen_tr\n"
+
 let show_account_info a =
   print_string (string_of_account a);
   print_newline();
@@ -497,6 +577,7 @@ let show_account_info a =
   print_newline()
 
 let show_connect_account () =
+  print_int ((List.length !me.blockchain) - 1);
   match !me.lazy_part.connected_account with
   |None -> ()
   |Some s ->
@@ -519,4 +600,82 @@ let show_all_adress () =
   print_string "Mes adresses :\n";
   AdressSet.iter (fun adress -> print_string ("\t" ^ adress); print_newline()) my_adress;
   print_string "Les adresses distante :\n";
-  AdressSet.iter (fun adress -> print_string ("\t" ^ adress); print_newline()) distant_adress;
+  AdressSet.iter (fun adress -> print_string ("\t" ^ adress); print_newline()) distant_adress
+
+let show_my_transaction option =
+  let opt = String.split_on_char '#' option in
+  match opt with
+  |[nb_tr; show_gen] ->
+    begin
+      let nb_tr = int_of_string nb_tr in
+      let show_gen = bool_of_string show_gen in
+      match !me.lazy_part.connected_account with
+      |None -> print_string "aucun compte connecté"
+      |Some s ->
+        let my_account = get_account_by_name s in
+        let _, all_tr, tr_output, _, _, _ = get_tr_info my_account.adress (get_public_key my_account.rsa_key) in
+        List.iteri (fun i (tr, merkel_root, proof_merkel, id_bloc_tr) ->
+              if i < nb_tr then
+                begin
+
+                  let input_gen_test = (List.hd tr.inputs).previous_out_index in
+                  if input_gen_test = -1 then
+                    begin
+                      if show_gen then
+                        begin
+                          print_string "transaction génératrice dans le bloc : ";print_int id_bloc_tr;print_string "  output:\n";
+                          let hash_tr = string_to_hexa (sha3_of_string (string_of_transaction tr)) in
+                          let list_proof_zint = List.map (fun x -> Z.of_string_base 16 x) proof_merkel in
+                          let auth_tr = string_of_bool (authenticate hash_tr list_proof_zint merkel_root) in
+                          List.iter (fun output ->
+                                print_string "\tadress :";
+                                print_string output.adress;
+                                print_string "  balance_change: +";
+                                print_float output.value;print_string " euc";
+                                print_newline();
+                            ) tr.outputs;
+                          print_string "\tpreuve de la transaction :\n";
+                          print_string "\t\tracine de merkel : "; print_string merkel_root;
+                          print_newline();
+                          print_string "\t\tpreuve de la transaction:\n";
+                          List.iter (fun x -> print_string "\t\t\t";print_string x;print_newline()) proof_merkel;
+                          print_string "\t\tauthentification: "; print_string auth_tr;
+                          print_newline();
+                        end
+                    end
+                    else
+                      begin
+                        print_string "transaction dans le bloc : ";print_int id_bloc_tr;print_string "  output:\n";
+                        let hash_tr = string_to_hexa (sha3_of_string (string_of_transaction tr)) in
+                        let list_proof_zint = List.map (fun x -> Z.of_string_base 16 x) proof_merkel in
+                        let auth_tr = string_of_bool (authenticate hash_tr list_proof_zint merkel_root) in
+                        List.iter (fun output ->
+                          if String.equal my_account.adress output.adress then
+                            begin
+                              print_string "\tadress:";
+                              print_string output.adress;
+                              print_string "  balance_chane: +";
+                              print_float output.value;print_string " euc";
+                              print_newline();
+                            end
+                            else
+                              begin
+                                print_string "\tadress:";
+                                print_string output.adress;
+                                print_string "  balance_change: -";
+                                print_float output.value;print_string " euc";
+                                print_newline();
+                              end
+                          ) tr.outputs;
+                          print_string "\tpreuve de la transaction :\n";
+                          print_string "\t\tracine de merkel : "; print_string merkel_root;
+                          print_newline();
+                          print_string "\t\tpreuve de la transaction:\n";
+                          List.iter (fun x -> print_string "\t\t\t";print_string x;print_newline()) proof_merkel;
+                          print_string "\t\tauthentification: "; print_string auth_tr;
+                          print_newline();
+                      end
+                end
+                ) all_tr
+    end
+  |[]|_ -> print_string "error show tr"; print_newline()

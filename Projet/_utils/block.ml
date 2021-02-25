@@ -88,8 +88,10 @@ let string_of_input_tr itr =
   n ^ e
 
 let print_input_tr in_tr =
+  print_string "\tprevious tr hash : ";
   print_string (string_to_hexa in_tr.previous_tr_hash);
   print_newline();
+  print_string "\tprevious out index : ";
   print_int in_tr.previous_out_index;
   print_newline()
 
@@ -100,8 +102,10 @@ let string_of_output_tr otr =
 
 
 let print_output_tr out_tr =
+  print_string "\tvalue : ";
   print_float out_tr.value;
   print_newline();
+  print_string "\tadress : ";
   print_string (string_to_hexa out_tr.adress);
   print_newline()
 
@@ -114,11 +118,11 @@ let string_of_transaction tr =
 
 
 let print_transaction tr =
-  print_string "affichage des inputs :";
+  print_string "\taffichage des inputs :";
   print_newline();
   List.iter (fun in_tr -> print_input_tr in_tr) tr.inputs;
   print_newline();
-  print_string "affichage des outputs :";
+  print_string "\taffichage des outputs :";
   print_newline();
   List.iter (fun out_tr -> print_output_tr out_tr) tr.outputs
 
@@ -179,14 +183,19 @@ type block = {
 
 
 let print_bloc_h b_h =
+  print_string "\tprev hash : ";
   print_string (string_to_hexa b_h.previous_hash);
   print_newline();
-  print_string (string_to_hexa b_h.hash_merkelroot);
+  print_string "\tmerkel root : ";
+  print_string b_h.hash_merkelroot;
   print_newline();
+  print_string "\ttimestamp : ";
   print_float b_h.timestamp;
   print_newline();
+  print_string "\ttarget : ";
   Z.print b_h.target;
   print_newline();
+  print_string "\tnonce : ";
   Z.print b_h.nonce
 
 let print_bloc b =
@@ -194,16 +203,17 @@ let print_bloc b =
   print_newline();
   print_bloc_h b.block_h;
   print_newline();
+  print_newline();
   print_string "affichage des transactions :";
   print_newline();
-  print_newline();
+  print_string "\tnombre de transactions : ";
   print_int (List.length b.transactions);
   print_newline();
   List.iter (fun tr -> print_transaction tr) b.transactions;
   print_newline()
 
 
-let lowest_target = "0002FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+let lowest_target = "00009FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
 (*
  Le bloc genesis est le premier bloc de la blockchain.

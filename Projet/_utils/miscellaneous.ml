@@ -72,6 +72,9 @@ let hash_zint z =
 let get_public_key (key: RSA.key) =
   key.size, key.n, key.e
 
+let public_key_equal (size1, n1, e1) (size2, n2, e2) =
+  size1 = size2 && Cryptokit.string_equal n1 n2 && Cryptokit.string_equal e1 e2
+
 let make_public_key (size, n, e) =
   ({
     size = size;
@@ -136,7 +139,7 @@ let make l =
 
 let hash_root t =
   match t with
-  |Leaf -> raise Not_found
+  |Leaf -> print_string "Not_found\n";""
   |Node (x, _, _, _) -> Z.format "%x" x
 
 
@@ -153,6 +156,9 @@ let rec proof t i =
 let authenticate tr pr root =
   let tr = Z.of_string_base 16 tr in
   let root = Z.of_string_base 16 root in
-  let x =
-    List.fold_right (fun h x -> hash_zint (Z.add h x)) pr (hash_zint tr) in
-  x = root
+  if List.length pr = 0 then
+    tr = root
+  else
+    let x =
+      List.fold_left (fun h x -> hash_zint (Z.add h x)) tr pr in
+    x = root

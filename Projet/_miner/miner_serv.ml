@@ -41,8 +41,10 @@ let connect_to_miner distant_miner =
   |[distant_ip; distant_port] ->
     begin
       let my_ip, my_port, account_adress, my_dns = get_my_connected_info () in
+      let test_exist_dns = DNS.filter (fun dns_t -> let ip, port = dns_t.internet_adress in
+                                                    port = int_of_string distant_port && String.equal distant_ip (string_of_inet_addr ip)) !me.dns in
       (* Si l'adresse tapé n'est pas celle qui m'a été attribué *)
-      if int_of_string distant_port != my_port && distant_ip != string_of_inet_addr my_ip then
+      if int_of_string distant_port != my_port && distant_ip != string_of_inet_addr my_ip && (DNS.is_empty test_exist_dns) then
         begin
           let s = socket PF_INET SOCK_STREAM 0 in
           setsockopt s SO_REUSEADDR true;
@@ -225,7 +227,6 @@ let receive_msg sc =
             begin
               unlock mutex_new_bloc
             end
-            
         end
       |Request_blockchain sender_id ->
         begin
@@ -329,7 +330,7 @@ let debug () =
 let command_behavior line =
   let listl = String.split_on_char ' ' line in
 
-  let connect = ("-connect", Arg.String connect_to_miner, "   connexion à un mineur distant") in
+  let connect = ("-connect", Arg.String connect_to_miner, "   connexion à un mineur distant : format -> ip:port") in
   let exit = ("-exit", Arg.Set exit_miner, "  Termine le mineur" ) in
   let show_miner = ("-show_node", Arg.Unit (fun () -> print_string (Node.string_of_dns !me.dns)), "  Affiche la liste des noeuds connue") in
   let show_me = ("-me", Arg.Unit (fun () -> print_string (string_of_me ())), "  Affiche mes informations") in
@@ -343,10 +344,11 @@ let command_behavior line =
   let show_c_account = ("-show_c", Arg.Unit show_connect_account, " Affiche le compte actuellement connecté") in
   let show_a_account = ("-show_all", Arg.Unit show_all_account, " Affiche tous les comptes") in
   let show_exist_adress = ("-show_ad", Arg.Unit show_all_adress, " Affiche les adresses de compte existant") in
-
+  let make_tr = ("-send_euc", Arg.String gen_tr, " permet d'envoyer de l'euc à une adresse : format -> adress>value") in
+  let show_my_tr = ("-show_tr", Arg.String show_my_transaction, " Permet de voir toute les transactions du compte") in
 
   let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account; connect_account; disconnect_account; stat_blockchain; balance;
-                    show_c_account; show_a_account; show_exist_adress] in
+                    show_c_account; show_a_account; show_exist_adress; make_tr; show_my_tr] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()

@@ -68,12 +68,16 @@ let string_of_dns_t dns_t =
 
 (*
   Ce module permet de crée un ensemble de table de traduction DNS.
+  Mauvais choix d'implémentation ce système d'id.
+  Si j'avais le temps, je créerai plutôt un ensemble d'adresse (ip, port), bien plus simple.
 *)
 module DNS = Set.Make(
   struct
     type t = dns_translation
-    let compare d1 d2 = 
-      if d1.id = d2.id then
+    let compare d1 d2 =
+      let ip1, port1 = d1.internet_adress in
+      let ip2, port2 = d2.internet_adress in
+      if String.equal (string_of_inet_addr ip1) (string_of_inet_addr ip2) && port1 = port2 then
         0
       else if d1.id < d2.id then
         -1
