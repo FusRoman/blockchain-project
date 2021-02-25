@@ -62,7 +62,7 @@ let connect_to_miner distant_miner =
               let received_command = input_value in_chan in
 
               match received_command with
-              |Change_id_dns_and_blockchain (my_id, new_dns, new_blockchain) ->
+              |Change_info (my_id, new_dns, new_blockchain) ->
                 begin
                   let new_me = {
                     !me with
@@ -77,8 +77,10 @@ let connect_to_miner distant_miner =
                 end
               |_ -> ();
 
-              shutdown s Unix.SHUTDOWN_ALL
-            end
+            end;
+
+            Unix.shutdown s Unix.SHUTDOWN_ALL;
+            close s
         end
     end
   |_ -> raise (Arg.Bad "mauvais argument, l'adresse doit être de la forme ip:port")
@@ -88,17 +90,18 @@ let connect_to_miner distant_miner =
 (* Fonction permettant de terminé proprement un thread tout en fermant correctement la socket passé en argument*)
 let properly_close sc =
   Unix.shutdown sc Unix.SHUTDOWN_ALL;
+  close sc;
   Thread.exit()
 
 (*
     Fonction gérant les messages entrant pour le mineur
 *)
 let receive_msg sc =
-  
-  let in_chan = in_channel_of_descr sc in
-  let out_chan = out_channel_of_descr sc in
-
   try
+    let in_chan = in_channel_of_descr sc in
+    let out_chan = out_channel_of_descr sc in
+
+  
     (* On receptionne un message sur le canal *)
     let received_message = input_value in_chan in
     begin
@@ -107,7 +110,7 @@ let receive_msg sc =
       |New_miner (distant_ip, distant_port, distant_adress, distant_dns) ->
         begin
           (* Un nouveau mineur se connecte *)
-          let my_dns_t = {id = !me.lazy_part.id; account_adress = get_all_accounts_adress(); internet_adress = !me.lazy_part.my_internet_adress} in
+          let my_dns_t = {id = !me.lazy_part.id; internet_adress = !me.lazy_part.my_internet_adress} in
 
           (* On test si son DNS est vide ou non *)
           if not (DNS.is_empty distant_dns) then
@@ -122,14 +125,13 @@ let receive_msg sc =
               (* On crée son dns. *)
               let new_dns = DNS.add {
                 id = free_id;
-                account_adress = distant_adress;
                 internet_adress = (distant_ip, distant_port)
               } new_dns in
 
               (* On envoie le nouveau dns a tous les mineurs sans exceptions *)
               DNS.iter (fun dns_t ->
                 let real_new_dns = DNS.add my_dns_t new_dns in
-                send_msg_to_miner dns_t.id new_dns (Change_id_dns_and_blockchain (dns_t.id, real_new_dns, !me.blockchain))) new_dns;
+                send_msg_to_miner dns_t.id new_dns (Change_info (dns_t.id, real_new_dns, !me.blockchain))) new_dns;
 
               (* On met a jour notre propre dns. *)
               let new_me = {
@@ -144,7 +146,7 @@ let receive_msg sc =
               let free_id = get_free_id !me.dns !me.lazy_part.id in
 
               (* On lui envoie son id unique et on ajoute notre propre dns a son dns *)
-              output_value out_chan (Change_id_dns_and_blockchain (free_id, DNS.add my_dns_t !me.dns, !me.blockchain));
+              output_value out_chan (Change_info (free_id, DNS.add my_dns_t !me.dns, !me.blockchain));
               flush out_chan;
 
               (* On transmet l'info a tous les mineurs que l'on connait qu'un nouveau mineur est arrivé. *)
@@ -153,7 +155,6 @@ let receive_msg sc =
               (* On ajoute le nouveau mineur a notre dns. *)
               let (new_dns_t: Node.dns_translation) = {
                 id = free_id;
-                account_adress = distant_adress;
                 internet_adress = (distant_ip, distant_port)
               } in
               let new_me = {
@@ -169,7 +170,6 @@ let receive_msg sc =
           |New_miner (distant_ip, distant_port, account_adress, new_dns) ->
             let (new_dns_t: Node.dns_translation) = {
             id;
-            account_adress;
             internet_adress = (distant_ip, distant_port)
           } in
           let new_me = {
@@ -179,7 +179,7 @@ let receive_msg sc =
           update_me new_me
           |_ -> ()
         end
-      |Change_id_dns_and_blockchain (new_id, new_dns, new_blockchain) ->
+      |Change_info (new_id, new_dns, new_blockchain) ->
         (* Un changement d'id arrive. Le mineur met a jour son id et son dns *)
         let real_new_dns = DNS.filter (fun dns_t -> dns_t.id != new_id) new_dns in
         let new_me = {
@@ -192,14 +192,10 @@ let receive_msg sc =
           blockchain = if (List.length new_blockchain) > (List.length !me.blockchain) then new_blockchain else !me.blockchain
         } in
         update_me new_me
-      |New_account (distant_id, new_adress) ->
-        DNS.iter (fun dns_t ->
-          if dns_t.id = distant_id then
-            dns_t.account_adress <- new_adress :: dns_t.account_adress) !me.dns
-      |New_block (pos_block, block) ->
-        begin    
+      |New_block (sender_id, pos_block, block) ->
+        begin
           lock mutex_new_bloc;
-
+            
           let blockchain_length = List.length !me.blockchain in
           if pos_block = blockchain_length + 1 then
             begin
@@ -211,24 +207,33 @@ let receive_msg sc =
                     blockchain = block :: !me.blockchain
                   } in
                   update_me new_me;
-                  unlock mutex_new_bloc;
+                  if not (verif_blockchain !me.blockchain) then
+                    print_string "ERROOOOOOOOOOOOR !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+                  unlock mutex_new_bloc
                 end
               else
                 begin
                   unlock mutex_new_bloc
                 end
             end
-          else if pos_block > blockchain_length then
+          else if pos_block >= blockchain_length then
             begin
-              output_value out_chan Request_blockchain
+              send_msg_to_miner sender_id !me.dns (Request_blockchain !me.lazy_part.id );
+              unlock mutex_new_bloc
             end
+          else
+            begin
+              unlock mutex_new_bloc
+            end
+            
         end
-      |Request_blockchain ->
+      |Request_blockchain sender_id ->
         begin
-          output_value out_chan (Send_blockchain !me.blockchain)
+          send_msg_to_miner sender_id !me.dns (Send_blockchain !me.blockchain)
         end
       |Send_blockchain new_blockchain ->
         begin
+          lock mutex_new_bloc;
           notify_new_block := true;
           let new_me = {
             !me with
@@ -238,38 +243,84 @@ let receive_msg sc =
 
           unlock mutex_new_bloc
         end
-      end;
-      
-    Unix.shutdown sc Unix.SHUTDOWN_ALL
-  with End_of_file ->
+      |Send_transaction tr ->
+        begin
+          lock mutex_new_transaction;
+          new_transaction := tr :: !new_transaction;
+          unlock mutex_new_transaction
+        end
+    end;
+
     properly_close sc
+
+  with 
+  |End_of_file ->
+    properly_close sc;
+    ()
+  |Unix_error (what_error, msg1, msg2) ->
+    begin
+      properly_close sc;
+      print_string (error_message what_error);
+    match what_error with
+    |Unix.EPIPE ->
+      begin
+        print_string "error Broken pipe\n"
+      end
+    |_ ->
+      begin
+        print_string "receive msg other error\n"
+      end
+    end
 
 (*
   Fonction permettant l'attente d'une connexion au serveur. Chaque nouvelle connexion crée un thread traitant la connexion.
 *)
-let serv_process sock =
-  listen sock 5;
-  while not !exit_miner do
-    let sc, _ = accept sock in
-    let _ = Thread.create receive_msg sc in
-    flush_all ();
-    ()
-  done
+let rec serv_process sock =
+  try
+    listen sock 40;
+    while not !exit_miner do
+      let sc, _ = accept sock in
+      let _ = Thread.create receive_msg sc in
+      flush_all ();
+      ()
+    done
+  with
+  |Unix_error (what_error, msg1, msg2) ->
+    begin
+      print_string (error_message what_error);
+      print_newline();
+    match what_error with
+    |Unix.EPIPE ->
+      begin
+        print_string "error Broken pipe\n";
+        serv_process sock
+      end
+    |_ ->
+      begin
+        print_string "serv process other error\n";
+        serv_process sock
+      end
+    end
 
 
 (* Fonction de débug permettant de tester des trucs dans l'environnement du mineur *)
 let debug () =
   print_newline();
 
-  match !me.lazy_part.connected_account with
-  |None -> ()
-  |Some n ->
-    let my_output_tr = get_real_output_account n in
-    List.iter (fun (tr, out) ->
-      print_newline();
-      print_float out.value;
-      print_newline();
-      ) my_output_tr;
+  
+
+  print_newline();
+
+  let addr = "1" in
+  let value = 104.04 in
+  create_transaction_for_miners addr value;
+
+  print_newline();
+  (*
+  print_string "affichage de la blockchain";
+  print_newline();
+
+  List.iteri (fun i b -> print_string "bloc numero :";print_int i;print_newline(); print_bloc b) !me.blockchain;*)
 
   print_newline()
   
@@ -289,9 +340,13 @@ let command_behavior line =
   let disconnect_account = ("-dis_a", Arg.Unit disconnect_account, " Se deconnecte du compte.") in
   let stat_blockchain = ("-stat_chain", Arg.Unit stat_chain, " Affiche les statistiques de la blockchain") in
   let balance = ("-show_balance", Arg.Unit show_my_balance, " Affiche le solde du compte") in
+  let show_c_account = ("-show_c", Arg.Unit show_connect_account, " Affiche le compte actuellement connecté") in
+  let show_a_account = ("-show_all", Arg.Unit show_all_account, " Affiche tous les comptes") in
+  let show_exist_adress = ("-show_ad", Arg.Unit show_all_adress, " Affiche les adresses de compte existant") in
 
 
-  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account; connect_account; disconnect_account; stat_blockchain; balance] in
+  let speclist = [connect; exit; show_miner; show_me; clear; debug; create_account; connect_account; disconnect_account; stat_blockchain; balance;
+                    show_c_account; show_a_account; show_exist_adress] in
 
   parse_command (Array.of_list listl) speclist;
   print_newline ()
@@ -303,15 +358,32 @@ let print_commandline () =
   |Some s ->
     print_string ("miner_"^ string_of_int !me.lazy_part.id ^ "#" ^ s ^ ">")
 
-let run_miner s1 =
+let rec run_miner s1 =
   let _ = Thread.create serv_process s1 in
   let _ = Thread.create mine_block Z.zero in
 
-  while not !exit_miner do
-    print_commandline();
-    let line = read_line() in
-    command_behavior line
-  done
+  try
+    while not !exit_miner do
+      print_commandline();
+      let line = read_line() in
+      command_behavior line
+    done
+  with
+  |Unix_error (what_error, msg1, msg2) ->
+    begin
+      print_string (error_message what_error);
+    match what_error with
+    |Unix.EPIPE ->
+      begin
+        print_string "error Broken pipe\n";
+        run_miner s1
+      end
+    |_ ->
+      begin
+        print_string "run miner other error\n";
+        run_miner s1
+      end
+    end
 
 
 (* Permet d'initialiser le mineur courant *)
@@ -346,6 +418,23 @@ let () =
 
   (* création de la prise de ce mineur *)
   let s1 = init_me () in
-
+  
   (* Lancement du mineur *)
-  run_miner s1
+  try
+    run_miner s1
+  with
+  |Unix_error (what_error, msg1, msg2) ->
+    begin
+      print_string (error_message what_error);
+    match what_error with
+    |Unix.EPIPE ->
+      begin
+        print_string "error Broken pipe\n";
+        ()
+      end
+    |_ ->
+      begin
+        print_string "main other error\n";
+        ()
+      end
+    end

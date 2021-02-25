@@ -75,27 +75,33 @@ let broadcast_miner set_miner f init_message =
     |[] -> ()
     |miner :: next ->
       begin
-        let ip, port = miner.internet_adress in
+        try
+          let ip, port = miner.internet_adress in
 
-        (* On créé la socket puis on la connecte vers le mineur de la liste *)
-        let s = socket PF_INET SOCK_STREAM 0 in
-        setsockopt s SO_REUSEADDR true;
-        Unix.connect s (ADDR_INET(ip, port));
+          (* On créé la socket puis on la connecte vers le mineur de la liste *)
+          let s = socket PF_INET SOCK_STREAM 0 in
+          setsockopt s SO_REUSEADDR true;
+          Unix.connect s (ADDR_INET(ip, port));
 
-        (* On prépare le message à envoyer. *)
-        let out_chan = out_channel_of_descr s in
+          (* On prépare le message à envoyer. *)
+          let out_chan = out_channel_of_descr s in
 
-        let new_msg = f message in
+          let new_msg = f message in
 
-        (* On envoie le message *)
-        output_value out_chan new_msg;
-        flush out_chan;
+          (* On envoie le message *)
+          output_value out_chan new_msg;
+          flush out_chan;
 
-        (*On ferme la socket et on passe au mineur suivant *)
-        Unix.shutdown s Unix.SHUTDOWN_ALL;
+          Unix.shutdown s Unix.SHUTDOWN_ALL;
+          close s;
 
-        (* On recommence avec le mineur suivant et le nouveau message *)
-        iter_list next new_msg
+          (* On recommence avec le mineur suivant et le nouveau message *)
+          iter_list next new_msg
+        with
+        |Unix_error (error, msg1, msg2) ->
+          print_string (error_message error);
+          print_newline();
+          print_string "erreur de broadcast\n"
       end in
   iter_list dns_list init_message
 
@@ -117,8 +123,9 @@ let send_msg_to_miner id dns msg =
   output_value out_chan msg;
   flush out_chan;
 
-  (*On ferme la socket et on passe au mineur suivant *)
-  Unix.shutdown s Unix.SHUTDOWN_ALL
+  Unix.shutdown s Unix.SHUTDOWN_ALL;
+  close s
+
 
 
 let merge_and_return_new_dns dns_1 dns_2 =
@@ -139,7 +146,6 @@ let create_account name =
       let account_key = Cryptokit.RSA.new_key ~rng:h_rng 2048 in
       let new_account = {
         account_name = name;
-        euc_balance = 0.0;
         rsa_key = account_key;
         adress = string_to_hexa (hash_of_public_key (get_public_key account_key))
       } in
@@ -150,8 +156,7 @@ let create_account name =
           accounts = new_account :: !me.lazy_part.accounts
         }
       } in
-      update_me new_me;
-      broadcast_miner !me.dns (fun m -> m) (New_account (!me.lazy_part.id, new_account.adress))
+      update_me new_me
     end
   else
     begin
@@ -191,7 +196,8 @@ let disconnect_account () =
       connected_account = None
     }
   } in
-  update_me new_me
+  update_me new_me;
+  print_string "Le compte est deconnecté. Le mineur ne mine plus\n"
 
 let merkel_of_tr_list trs =
   let hash_tr_list = List.map (fun tr -> string_to_hexa (sha3_of_string (string_of_transaction tr))) trs in
@@ -199,8 +205,12 @@ let merkel_of_tr_list trs =
 
 
 let create_generation_tr account =
+  let h_rng = Cryptokit.Random.hardware_rng () in
+  let rand_bytes = Bytes.create 30 in
+  h_rng#random_bytes rand_bytes 0 29;
+  let str_alea = Bytes.to_string rand_bytes in
   let input_gen = {
-    previous_tr_hash = "";
+    previous_tr_hash = str_alea;
     previous_out_index = -1;
     signature = "";
     public_key = get_public_key account.rsa_key
@@ -246,7 +256,6 @@ let new_transaction_incoming = ref false
 
 let (new_transaction: (transaction list ref)) = ref []
 
-let hash_current_gen_tr = ref ""
 
 let get_account_by_name name_account = 
   List.find (fun acc -> acc.account_name = name_account) !me.lazy_part.accounts
@@ -259,18 +268,19 @@ let create_header name_account new_nonce =
   let hash_prev_block = sha3_of_string (string_of_block_header prev_block.block_h) in
 
   if List.length !new_transaction = 0 then
-    let tr_gen = create_generation_tr account in
-    let hash_gen_tr = sha3_of_string (string_of_transaction tr_gen) in
-    let merkel_root = make [string_to_hexa (hash_gen_tr)] in
-    hash_current_gen_tr := hash_gen_tr;
-    new_transaction := tr_gen :: !new_transaction;
-    {
-      previous_hash = hash_prev_block;
-      hash_merkelroot = hash_root merkel_root; 
-      timestamp = Unix.time(); 
-      target = prev_block.block_h.target; 
-      nonce = new_nonce
-    }
+    begin
+      let tr_gen = create_generation_tr account in
+      let hash_gen_tr = sha3_of_string (string_of_transaction tr_gen) in
+      let merkel_root = make [string_to_hexa (hash_gen_tr)] in
+      new_transaction := tr_gen :: !new_transaction;
+      {
+        previous_hash = hash_prev_block;
+        hash_merkelroot = hash_root merkel_root; 
+        timestamp = Unix.time(); 
+        target = prev_block.block_h.target; 
+        nonce = new_nonce
+      }
+    end
   else
     let merkel_root = hash_root (make (List.map (fun tr -> string_to_hexa (sha3_of_string (string_of_transaction tr))) !new_transaction)) in
     {
@@ -281,6 +291,9 @@ let create_header name_account new_nonce =
       nonce = new_nonce
     }
    
+
+
+
 
 let rec mine_block nonce =
   match !me.lazy_part.connected_account with
@@ -304,7 +317,7 @@ let rec mine_block nonce =
           transactions = !new_transaction
         } in
 
-        broadcast_miner !me.dns (fun m -> m) (New_block (List.length !me.blockchain + 1, new_bloc));
+        broadcast_miner !me.dns (fun m -> m) (New_block (!me.lazy_part.id, List.length !me.blockchain + 1, new_bloc));
         let new_me = {
           !me with
           blockchain = new_bloc :: !me.blockchain
@@ -323,10 +336,18 @@ let rec mine_block nonce =
         mine_block (Z.add nonce Z.one)
       end
 
+
+
+
+
+
+
+
 let verif_block block =
   let hash_header = hash_of_block_header block in
+  let hash_my_prev_block = sha3_of_string (string_of_block_header (List.hd !me.blockchain).block_h) in
   let prev_target = List.hd !me.blockchain in
-  zint_of_hash hash_header < prev_target.block_h.target
+  zint_of_hash hash_header < prev_target.block_h.target && String.equal block.previous_hash hash_my_prev_block
 
 let stat_chain () =
   let last_bloc = List.hd !me.blockchain in
@@ -365,20 +386,25 @@ let get_real_output_account name_account =
         match tr_list with
         |[] ->  (prev_hash, acc)
         |tr :: next_tr ->
+          begin
           let hash_tr = sha3_of_string (string_of_transaction tr) in
-          if Cryptokit.string_equal hash_tr !hash_current_gen_tr then
-            aux2 next_tr prev_hash (tr :: acc)
-          else if List.mem hash_tr prev_hash then
-            aux2 next_tr prev_hash acc
+          if List.mem hash_tr prev_hash then
+            begin
+            let new_prev_hash = List.fold_left (fun prev_hash input -> input.previous_tr_hash :: prev_hash) prev_hash tr.inputs in
+            aux2 next_tr new_prev_hash acc
+            end
           else
-            aux2 next_tr (hash_tr :: prev_hash) (tr :: acc) in
+            begin
+            let new_prev_hash = List.fold_left (fun prev_hash input -> input.previous_tr_hash :: prev_hash) prev_hash tr.inputs in
+            aux2 next_tr new_prev_hash (tr :: acc)
+            end
+          end in
       
       let new_prev_hash_trs, tr_out = aux2 trs1 prev_hash_trs tr_output in
       aux new_prev_hash_trs tr_out next_bl in
   
    let all_non_ref_tr = aux [] [] !me.blockchain in
-   print_int (List.length all_non_ref_tr);
-   print_newline();
+
    List.fold_left (
      fun real_tr_out tr ->
       List.fold_left (
@@ -389,6 +415,7 @@ let get_real_output_account name_account =
             all_real_tr_out
       ) real_tr_out tr.outputs
    ) [] all_non_ref_tr
+
 
 let compute_account_balance name_account =
   let my_account = get_account_by_name name_account in
@@ -402,7 +429,7 @@ let show_my_balance () =
     print_string ("Solde du compte : " ^ string_of_float (compute_account_balance s));
     print_newline()
 
-let create_transaction adress value few =
+let create_transaction_for_miners adress value =
   match !me.lazy_part.connected_account with
   |None -> ()
   |Some s ->
@@ -410,41 +437,86 @@ let create_transaction adress value few =
       let my_account = get_account_by_name s in
       let all_my_tr = get_real_output_account s in
       let account_balance = List.fold_left (fun acc (_, out) -> if Cryptokit.string_equal my_account.adress out.adress then acc +. out.value else acc) 0.0 all_my_tr in
+
+
       if value > account_balance then
         print_string "Il n'y a pas assez d'argent sur le compte"
       else
-        let rec aux tr_list acc_v acc_tr =
-          match tr_list with
-          |[] -> acc_tr, acc_v
-          |(tr, _) :: next ->
-            let balance_tr = List.fold_left (fun acc out -> if Cryptokit.string_equal my_account.adress out.adress then acc +. out.value else acc) 0.0 tr.outputs in
-            if acc_v +. balance_tr >= value then
-              [tr], acc_v
-            else
-              aux next (acc_v +. balance_tr) (tr :: acc_tr) in
-        
-        let needed_tr, value_tr = aux all_my_tr 0.0 [] in
-        let input_tr = List.map (fun tr -> 
-          let hash_tr = sha3_of_string (string_of_transaction tr) in 
-          let (_, id) = List.fold_left (fun (test,id) out -> if Cryptokit.string_equal my_account.adress out.adress then (true, id) else (test, id + 1)) (false, 0) tr.outputs in
-        {
-          previous_tr_hash = hash_tr;
-          previous_out_index = id;
-          signature = "";
-          public_key = get_public_key my_account.rsa_key
-        }) needed_tr in
+        begin
+          let rec aux tr_list acc_v acc_tr =
+            match tr_list with
+            |[] -> acc_tr, acc_v
+            |(tr, _) :: next ->
+              let balance_tr = List.fold_left (fun acc out -> if Cryptokit.string_equal my_account.adress out.adress then acc +. out.value else acc) 0.0 tr.outputs in
+              if acc_v +. balance_tr >= value then
+                tr :: acc_tr, acc_v +. balance_tr
+              else
+                aux next (acc_v +. balance_tr) (tr :: acc_tr) in
+          
+          let needed_tr, value_tr = aux all_my_tr 0.0 [] in   
+          let diff_value = value_tr -. value in
+          let diff_output = {
+            value = diff_value;
+            adress = my_account.adress   
+          } in
+          
+          let input_tr = List.map (fun tr ->
+            let hash_tr = sha3_of_string (string_of_transaction tr) in 
+            let (_, id) = List.fold_left (fun (test,id) out -> if Cryptokit.string_equal my_account.adress out.adress then (true, id) else (test, id + 1)) (false, 0) tr.outputs in
+          {
+            previous_tr_hash = hash_tr;
+            previous_out_index = id;
+            signature = "";
+            public_key = get_public_key my_account.rsa_key
+          }) needed_tr in
 
-        let output_tr = {
-          value;
-          adress 
-        } in
+          let output_tr = {
+            value;
+            adress 
+          } in
 
-        let new_tr = {inputs = input_tr; outputs = [output_tr]} in
-        let signature = sign_transaction my_account.rsa_key new_tr in
-        let new_tr = {
-        new_tr with
-        inputs = List.map (fun input -> {input with signature = signature}) new_tr.inputs
-        } in
-        new_transaction := new_tr :: !new_transaction;
-        broadcast_miner !me.dns (fun m -> m) (Send_transaction new_tr)
+          let new_tr = {inputs = input_tr; outputs = [diff_output; output_tr]} in
+
+
+          let signature = sign_transaction my_account.rsa_key new_tr in
+          let new_tr = {
+          new_tr with
+          inputs = List.map (fun input -> {input with signature = signature}) new_tr.inputs
+          } in
+          lock mutex_new_transaction;
+          new_transaction := new_tr :: !new_transaction;
+          unlock mutex_new_transaction;
+          broadcast_miner !me.dns (fun m -> m) (Send_transaction new_tr)
+        end
       end
+
+let show_account_info a =
+  print_string (string_of_account a);
+  print_newline();
+  print_string ("balance: " ^ string_of_float (compute_account_balance a.account_name));
+  print_newline()
+
+let show_connect_account () =
+  match !me.lazy_part.connected_account with
+  |None -> ()
+  |Some s ->
+    show_account_info (get_account_by_name s)
+
+let show_all_account () =
+  List.iter (fun a ->
+    show_account_info a; print_newline()) !me.lazy_part.accounts
+
+let compute_all_unique_adress () =
+  let unique_adress_blockchain = List.fold_left (fun a_set block ->
+    List.fold_left (fun a_set2 tr ->
+      List.fold_left (fun a_set3 output ->
+        AdressSet.add output.adress a_set3) a_set2 tr.outputs) a_set block.transactions) AdressSet.empty !me.blockchain in
+  let my_unique_adress = List.fold_left (fun res_set (account: Node.account) -> AdressSet.add account.adress res_set) AdressSet.empty !me.lazy_part.accounts in
+  (unique_adress_blockchain, my_unique_adress)
+
+let show_all_adress () =
+  let distant_adress, my_adress = compute_all_unique_adress() in
+  print_string "Mes adresses :\n";
+  AdressSet.iter (fun adress -> print_string ("\t" ^ adress); print_newline()) my_adress;
+  print_string "Les adresses distante :\n";
+  AdressSet.iter (fun adress -> print_string ("\t" ^ adress); print_newline()) distant_adress;

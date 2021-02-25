@@ -87,9 +87,23 @@ let string_of_input_tr itr =
   string_of_int size ^
   n ^ e
 
+let print_input_tr in_tr =
+  print_string (string_to_hexa in_tr.previous_tr_hash);
+  print_newline();
+  print_int in_tr.previous_out_index;
+  print_newline()
+
+
 let string_of_output_tr otr =
   string_of_float otr.value ^
   otr.adress
+
+
+let print_output_tr out_tr =
+  print_float out_tr.value;
+  print_newline();
+  print_string (string_to_hexa out_tr.adress);
+  print_newline()
 
 
 let string_of_transaction tr =
@@ -97,6 +111,16 @@ let string_of_transaction tr =
     acc ^ string_of_input_tr input) "" tr.inputs) ^
   (List.fold_left (fun acc output ->
     acc ^ string_of_output_tr output) "" tr.outputs)
+
+
+let print_transaction tr =
+  print_string "affichage des inputs :";
+  print_newline();
+  List.iter (fun in_tr -> print_input_tr in_tr) tr.inputs;
+  print_newline();
+  print_string "affichage des outputs :";
+  print_newline();
+  List.iter (fun out_tr -> print_output_tr out_tr) tr.outputs
 
 
 let sign_transaction (my_private_key: RSA.key) tr =
@@ -154,7 +178,32 @@ type block = {
   }
 
 
-let lowest_target = "00001FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+let print_bloc_h b_h =
+  print_string (string_to_hexa b_h.previous_hash);
+  print_newline();
+  print_string (string_to_hexa b_h.hash_merkelroot);
+  print_newline();
+  print_float b_h.timestamp;
+  print_newline();
+  Z.print b_h.target;
+  print_newline();
+  Z.print b_h.nonce
+
+let print_bloc b =
+  print_string "affichage du header :";
+  print_newline();
+  print_bloc_h b.block_h;
+  print_newline();
+  print_string "affichage des transactions :";
+  print_newline();
+  print_newline();
+  print_int (List.length b.transactions);
+  print_newline();
+  List.iter (fun tr -> print_transaction tr) b.transactions;
+  print_newline()
+
+
+let lowest_target = "0002FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 
 (*
  Le bloc genesis est le premier bloc de la blockchain.

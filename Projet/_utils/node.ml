@@ -19,15 +19,13 @@ open Miscellaneous
 *)
 type account = {
   account_name : string;
-  euc_balance: euc;
   rsa_key: Cryptokit.RSA.key;
   adress: string
   }
 
 let string_of_account a =
   "name : " ^ a.account_name ^
-  "\nbalance : " ^ string_of_float a.euc_balance ^
-  "\nadress : " ^ string_to_hexa a.adress
+  "\nadress : " ^ a.adress
 
 
 (*
@@ -60,20 +58,13 @@ type lazy_node = {
 *)
 type dns_translation = {
   id: int;
-  mutable account_adress: string list;
   internet_adress: Unix.inet_addr * int
   }
 
 
 let string_of_dns_t dns_t =
-  let rec aux adress_list acc =
-    match adress_list with
-    |[] -> ""
-    |[adress] -> adress
-    |adress1 :: adress2 :: next ->
-      aux next (adress1 ^ "; " ^ adress2 ^ acc) in
   let ip, port = dns_t.internet_adress in
-  "{" ^ string_of_int dns_t.id ^ ", [" ^ (aux dns_t.account_adress "") ^ "], " ^ string_of_inet_addr ip ^ ":" ^ string_of_int port ^ "}"
+  "{id = " ^ string_of_int dns_t.id ^ ";adress = " ^ string_of_inet_addr ip ^ ":" ^ string_of_int port ^ "}"
 
 (*
   Ce module permet de crée un ensemble de table de traduction DNS.
@@ -91,6 +82,12 @@ module DNS = Set.Make(
   end
 )
 
+module AdressSet = Set.Make(
+  struct
+    type t = string
+    let compare = String.compare
+  end
+)
 
 let string_of_dns dns =
   DNS.fold (fun dns_t acc ->
