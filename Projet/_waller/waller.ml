@@ -57,7 +57,6 @@ let run_wallet () =
 
 
 let () =
-
   let speclist = [("-miner_addr", Arg.Tuple [Arg.String set_ip_miner; Arg.Int set_port_miner], " Spécifie l'adresse du mineur")]
   in let usage_msg = "Création d'un waller de la blockchain. Options disponible:"
   in Arg.parse speclist print_endline usage_msg;
