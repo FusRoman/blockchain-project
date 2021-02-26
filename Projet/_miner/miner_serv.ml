@@ -112,7 +112,7 @@ let receive_msg sc =
       |New_miner (distant_ip, distant_port, distant_dns) ->
         begin
           (* Un nouveau mineur se connecte *)
-          let my_dns_t = {id = !me.lazy_part.id; internet_adress = !me.lazy_part.my_internet_adress} in
+          let my_dns_t = {id = !me.lazy_part.id; internet_adress = !me.lazy_part.my_internet_adress; node_type = Full} in
 
           (* On test si son DNS est vide ou non *)
           if not (DNS.is_empty distant_dns) then
@@ -127,7 +127,8 @@ let receive_msg sc =
               (* On crée son dns. *)
               let new_dns = DNS.add {
                 id = free_id;
-                internet_adress = (distant_ip, distant_port)
+                internet_adress = (distant_ip, distant_port);
+                node_type = Full
               } new_dns in
 
               (* On envoie le nouveau dns a tous les mineurs sans exceptions *)
@@ -157,7 +158,8 @@ let receive_msg sc =
               (* On ajoute le nouveau mineur a notre dns. *)
               let (new_dns_t: Node.dns_translation) = {
                 id = free_id;
-                internet_adress = (distant_ip, distant_port)
+                internet_adress = (distant_ip, distant_port);
+                node_type = Full
               } in
               let new_me = {
                 !me with
@@ -166,23 +168,26 @@ let receive_msg sc =
               update_me new_me
             end
         end
-        |New_waller (ip, port) -> 
-        let free_id = get_free_id !me.dns !me.lazy_part.id in
-        output_value out_chan (Change_info (free_id, !me.dns, !me.blockchain));
-        flush out_chan;
-        (* On transmet l'info a tous les mineurs que l'on connait qu'un nouveau mineur est arrivé. *)
-        broadcast_miner !me.dns (fun m -> m) (Broadcast (New_waller (distant_ip, distant_port), free_id));
+      |New_waller (ip, port) -> 
+        begin
+          let free_id = get_free_id !me.dns !me.lazy_part.id in
+          output_value out_chan (Change_info (free_id, !me.dns, !me.blockchain));
+          flush out_chan;
+          (* On transmet l'info a tous les mineurs que l'on connait qu'un nouveau mineur est arrivé. *)
+          broadcast_miner !me.dns (fun m -> m) (Broadcast (New_waller (ip, port), free_id));
 
-        (* On ajoute le nouveau mineur a notre dns. *)
-        let (new_dns_t: Node.dns_translation) = {
-          id = free_id;
-          internet_adress = (distant_ip, distant_port)
-        } in
-        let new_me = {
-          !me with
-          dns = DNS.add new_dns_t !me.dns
-        } in
-        update_me new_me
+          (* On ajoute le nouveau mineur a notre dns. *)
+          let (new_dns_t: Node.dns_translation) = {
+            id = free_id;
+            internet_adress = (ip, port);
+            node_type = Lazy
+          } in
+          let new_me = {
+            !me with
+            dns = DNS.add new_dns_t !me.dns
+          } in
+          update_me new_me
+        end
 
       |Broadcast (m, id) ->
         begin
@@ -190,7 +195,8 @@ let receive_msg sc =
           |New_miner (distant_ip, distant_port, new_dns) ->
             let (new_dns_t: Node.dns_translation) = {
             id;
-            internet_adress = (distant_ip, distant_port)
+            internet_adress = (distant_ip, distant_port);
+            node_type = Full
           } in
           let new_me = {
                 !me with
@@ -198,19 +204,24 @@ let receive_msg sc =
               } in
           update_me new_me
           |New_waller (distant_ip, distant_port) ->
-           let (new_dns_t: Node.dns_translation) = {
-            id;
-            internet_adress = (distant_ip, distant_port)
-          } in
-          let new_me = {
-                !me with
-                dns = DNS.add new_dns_t !me.dns
-              } in
-          update_me new_me
-          |_ -> ()
+            let (new_dns_t: Node.dns_translation) = {
+              id;
+              internet_adress = (distant_ip, distant_port);
+              node_type = Lazy
+            } in
+            let new_me = {
+                  !me with
+                  dns = DNS.add new_dns_t !me.dns
+                } in
+            update_me new_me
+            |_ -> ()
         end
-        |Request_transaction (_, _, _, _) ->
-        ()
+        |Request_transaction (adress, size, n, e) ->
+          begin
+            let _, all_tr, all_non_ref_tr, _, _, _ = get_tr_info adress (size, n, e) in
+            output_value out_chan (Send_wt (all_tr, all_non_ref_tr));
+            flush out_chan
+          end
         |Send_wt _ -> ()
       |Change_info (new_id, new_dns, new_blockchain) ->
         (* Un changement d'id arrive. Le mineur met a jour son id et son dns *)
@@ -279,7 +290,8 @@ let receive_msg sc =
         begin
           lock mutex_new_transaction;
           new_transaction := tr :: !new_transaction;
-          unlock mutex_new_transaction
+          unlock mutex_new_transaction;
+          broadcast_miner !me.dns (fun m -> m) (Send_transaction tr)
         end
     end;
 

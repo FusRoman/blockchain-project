@@ -75,6 +75,14 @@ let get_public_key (key: RSA.key) =
 let public_key_equal (size1, n1, e1) (size2, n2, e2) =
   size1 = size2 && Cryptokit.string_equal n1 n2 && Cryptokit.string_equal e1 e2
 
+let print_pk (size, n, e) =
+  print_int size;
+  print_newline();
+  print_string (string_to_hexa n);
+  print_newline();
+  print_string (string_to_hexa e);
+  print_newline()
+
 let make_public_key (size, n, e) =
   ({
     size = size;

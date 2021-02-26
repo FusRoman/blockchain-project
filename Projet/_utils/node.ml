@@ -57,6 +57,9 @@ let init_lazynode (ip, port) =
     connected_account = None
   }
 
+type type_node =
+|Lazy
+|Full
 
 (*
   Pour permettre la transmission de transaction en utilisant uniquement un système basé sur les ids, un mécanisme semblable au DNS (Domain Name Server) est mis en place.
@@ -67,7 +70,8 @@ let init_lazynode (ip, port) =
 *)
 type dns_translation = {
   id: int;
-  internet_adress: Unix.inet_addr * int
+  internet_adress: Unix.inet_addr * int;
+  node_type: type_node
   }
 
 

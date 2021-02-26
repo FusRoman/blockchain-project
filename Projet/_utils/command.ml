@@ -16,8 +16,16 @@ type 'a serv_command =
 |Request_blockchain of int
 |Send_blockchain of block list
 |Send_transaction of transaction
+(*
+  Request_transaction permet de demander les transactions d'un compte d'un waller à un miner
+    -adresse du compte
+    -clé public sous la forme (size, n, e)
+*)
 |Request_transaction of string * int * string * string
-|Send_wt of (Block.transaction * string * string list * int) list
+(*
+  Permet a un miner d'envoyer les transactions qu'a demander un waller
+*)
+|Send_wt of (Block.transaction * string * string list * int) list * (Block.transaction * string * string list * int) list
 
 exception ServCommandError
 

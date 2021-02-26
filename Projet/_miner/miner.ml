@@ -6,7 +6,7 @@ open Block
 open Mutex
 
 (* L'adresse IP et le port du mineur courant *)
-let my_ip = ref "127.0.0.1"
+let my_ip = ref ""
 let my_port = ref 8000
 let set_my_ip ip = my_ip := ip
 let set_my_port port = my_port := port
@@ -62,8 +62,6 @@ let get_free_id dns id =
 
 let string_of_me () =
   let my_ip, my_port = !me.lazy_part.my_internet_adress in
-
-  
   string_of_int !me.lazy_part.id ^ "#" ^ string_of_inet_addr my_ip ^ ":" ^ string_of_int my_port
 
 
@@ -76,27 +74,30 @@ let broadcast_miner set_miner f init_message =
     |miner :: next ->
       begin
         try
-          let ip, port = miner.internet_adress in
+          if miner.node_type = Full then
+            begin
+              let ip, port = miner.internet_adress in
 
-          (* On créé la socket puis on la connecte vers le mineur de la liste *)
-          let s = socket PF_INET SOCK_STREAM 0 in
-          setsockopt s SO_REUSEADDR true;
-          Unix.connect s (ADDR_INET(ip, port));
+              (* On créé la socket puis on la connecte vers le mineur de la liste *)
+              let s = socket PF_INET SOCK_STREAM 0 in
+              setsockopt s SO_REUSEADDR true;
+              Unix.connect s (ADDR_INET(ip, port));
 
-          (* On prépare le message à envoyer. *)
-          let out_chan = out_channel_of_descr s in
+              (* On prépare le message à envoyer. *)
+              let out_chan = out_channel_of_descr s in
 
-          let new_msg = f message in
+              let new_msg = f message in
 
-          (* On envoie le message *)
-          output_value out_chan new_msg;
-          flush out_chan;
+              (* On envoie le message *)
+              output_value out_chan new_msg;
+              flush out_chan;
 
-          Unix.shutdown s Unix.SHUTDOWN_ALL;
-          close s;
+              Unix.shutdown s Unix.SHUTDOWN_ALL;
+              close s;
 
-          (* On recommence avec le mineur suivant et le nouveau message *)
-          iter_list next new_msg
+              (* On recommence avec le mineur suivant et le nouveau message *)
+              iter_list next new_msg
+            end
         with
         |Unix_error (error, msg1, msg2) ->
           print_string (error_message error);
@@ -430,6 +431,85 @@ let stat_chain () =
 
 (* 
 Cette fonction parcours la blockchain et renvoie
+  -une liste de n-uplet. Chaque n-uplet n-uplets est :
+      -la transaction associé au compte
+      -la racine de l'arbre de merkel du bloc
+      -l'ensemble des hash des transactions permettant de recrée la preuve
+      -l'id du block pour vérifié si la transaction est confirmé dans la blockchain
+  -une liste de n-uplet. Chaque n-uplet est
+      -la transaction non référencé associé au compte
+      -la racine de l'arbre de merkel du bloc
+      -l'ensemble des hash des transactions permettant de recrée la preuve
+      -l'id du block pour vérifié si la transaction est confirmé dans la blockchain  
+  -l'ensemble des outputs non référencé du compte (la quantité de cryptomonnaie qu'il a actuellement)
+*)
+(*let get_tr_info account_adress account_key =
+
+  let _, all_my_tr, all_my_out_tr, all_out_tr, _, _ = List.fold_left (fun (prev_hash, my_tr, tr_output, my_output, id_block, id_tr) block ->
+
+    let merkel_root = block.block_h.hash_merkelroot in
+    let merkel_tree_bloc = (make (List.map (fun tr -> string_to_hexa (sha3_of_string (string_of_transaction tr))) block.transactions)) in
+
+    
+
+    List.fold_left (fun (prev_hash, my_tr, tr_output, my_output, id_block, id_tr) current_tr ->
+    
+      let proof_tr = proof merkel_tree_bloc id_tr in
+
+        let hash_tr = sha3_of_string (string_of_transaction current_tr) in
+        
+        let input_treatment (prev_hash, tr_input) input =
+          (*print_newline();
+          print_pk account_key;
+          print_pk input.public_key;
+          print_newline();*)
+          if public_key_equal account_key input.public_key then
+            begin
+              (*print_int (List.length block.transactions);
+              print_newline();
+              print_transaction current_tr;
+              print_newline();
+              print_newline();*)
+            (
+              input.previous_tr_hash :: prev_hash,
+              (current_tr, merkel_root, proof_tr, id_block) :: my_tr
+            )
+            end
+          else
+            begin
+            (
+              input.previous_tr_hash :: prev_hash,
+              my_tr
+            )
+            end in
+
+
+        let output_treatment (tr_output,my_output) output =
+          if String.equal account_adress output.adress then
+            (current_tr, merkel_root, proof_tr, id_block)::tr_output, output :: my_output
+          else
+            tr_output, my_output in
+
+        if List.mem hash_tr prev_hash then
+          let new_prev_hash, new_my_tr = List.fold_left input_treatment (prev_hash, my_tr) current_tr.inputs in
+          (new_prev_hash, new_my_tr, tr_output, my_output, id_block + 1, id_tr + 1)
+        else
+          let new_prev_hash, new_my_tr = List.fold_left input_treatment (prev_hash, my_tr) current_tr.inputs in
+          let my_new_tr_output, my_new_output = List.fold_left output_treatment (tr_output,my_output) current_tr.outputs in
+          (new_prev_hash, new_my_tr, my_new_tr_output, my_new_output, id_block + 1, id_tr + 1)
+
+
+      ) (prev_hash, my_tr, tr_output, my_output, id_block, 0) block.transactions) ([], [], [], [], 0, 0) (List.rev !me.blockchain) in
+    
+    
+
+    (all_my_tr, all_my_out_tr, all_out_tr)*)
+
+
+
+
+(* 
+Cette fonction parcours la blockchain et renvoie
   -la liste des prev_hash de chaque transaction (non utile)
   -une liste de n-uplet. Chaque n-uplet n-uplets est :
       -la transaction associé au compte
@@ -486,7 +566,7 @@ let get_tr_info account_adress account_key =
           (new_prev_hash, new_my_tr, ((current_tr, merkel_root, proof_tr, id_block)::tr_output), my_new_output, id_block + 1, id_tr + 1)
 
 
-      ) (prev_hash, my_tr, tr_output, my_output, id_block, 0) block.transactions) ([], [], [], [], 0, 0) !me.blockchain
+      ) (prev_hash, my_tr, tr_output, my_output, id_block, 0) block.transactions) ([], [], [], [], 0, 0) (List.rev !me.blockchain)
 
 
 
@@ -510,6 +590,8 @@ let create_transaction_for_miners adress value =
     begin
       let my_account = get_account_by_name s in
       let _, _, all_my_tr, my_output_tr, _, _ = get_tr_info s (get_public_key my_account.rsa_key) in
+      print_int (List.length all_my_tr);
+      print_newline();
       let account_balance = compute_account_balance s in
 
 
@@ -527,12 +609,9 @@ let create_transaction_for_miners adress value =
               else
                 aux next (acc_v +. balance_tr) (tr :: acc_tr) in
           
-          let needed_tr, value_tr = aux all_my_tr 0.0 [] in   
+          let needed_tr, value_tr = aux all_my_tr 0.0 [] in
           let diff_value = value_tr -. value in
-          let diff_output = {
-            value = diff_value;
-            adress = my_account.adress   
-          } in
+          
           
           let input_tr = List.map (fun tr ->
             let hash_tr = sha3_of_string (string_of_transaction tr) in 
@@ -549,7 +628,11 @@ let create_transaction_for_miners adress value =
             adress 
           } in
 
-          let new_tr = {inputs = input_tr; outputs = [diff_output; output_tr]} in
+          let diff_output = {
+            value = diff_value;
+            adress = my_account.adress   
+          } in
+          let new_tr = if diff_value > 0.0 then {inputs = input_tr; outputs = [diff_output; output_tr]} else {inputs = input_tr; outputs = [output_tr]} in
 
 
           let signature = sign_transaction my_account.rsa_key new_tr in
@@ -614,6 +697,7 @@ let show_my_transaction option =
       |Some s ->
         let my_account = get_account_by_name s in
         let _, all_tr, tr_output, _, _, _ = get_tr_info my_account.adress (get_public_key my_account.rsa_key) in
+
         List.iteri (fun i (tr, merkel_root, proof_merkel, id_bloc_tr) ->
               if i < nb_tr then
                 begin
@@ -654,7 +738,7 @@ let show_my_transaction option =
                             begin
                               print_string "\tadress:";
                               print_string output.adress;
-                              print_string "  balance_chane: +";
+                              print_string "  balance_change: +";
                               print_float output.value;print_string " euc";
                               print_newline();
                             end
@@ -676,6 +760,41 @@ let show_my_transaction option =
                           print_newline();
                       end
                 end
-                ) all_tr
+                ) all_tr;
+
+                List.iteri (fun i (tr, merkel_root, proof_merkel, id_bloc_tr) ->
+                  if i < nb_tr then
+                    
+                    let input_gen_test = (List.hd tr.inputs).previous_out_index in
+
+                    let test = List.fold_left (fun test input -> if public_key_equal input.public_key (get_public_key my_account.rsa_key) then true else test ) false tr.inputs in
+
+                    if input_gen_test != -1 && not test then
+                      begin
+                        print_string "transaction dans le bloc : ";print_int id_bloc_tr;print_string "  output:\n";
+                        let hash_tr = string_to_hexa (sha3_of_string (string_of_transaction tr)) in
+                        let list_proof_zint = List.map (fun x -> Z.of_string_base 16 x) proof_merkel in
+                        let auth_tr = string_of_bool (authenticate hash_tr list_proof_zint merkel_root) in
+                        List.iter (fun output ->
+                          if String.equal my_account.adress output.adress then
+                            begin
+                              print_string "\tadress:";
+                              print_string output.adress;
+                              print_string "  balance_change: +";
+                              print_float output.value;print_string " euc";
+                              print_newline();
+                            end
+                          ) tr.outputs;
+                          print_string "\tpreuve de la transaction :\n";
+                          print_string "\t\tracine de merkel : "; print_string merkel_root;
+                          print_newline();
+                          print_string "\t\tpreuve de la transaction:\n";
+                          List.iter (fun x -> print_string "\t\t\t";print_string x;print_newline()) proof_merkel;
+                          print_string "\t\tauthentification: "; print_string auth_tr;
+                          print_newline();
+                      end
+                    
+                    ) tr_output
+              
     end
   |[]|_ -> print_string "error show tr"; print_newline()

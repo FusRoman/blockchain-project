@@ -106,7 +106,7 @@ let print_output_tr out_tr =
   print_float out_tr.value;
   print_newline();
   print_string "\tadress : ";
-  print_string (string_to_hexa out_tr.adress);
+  print_string (out_tr.adress);
   print_newline()
 
 
