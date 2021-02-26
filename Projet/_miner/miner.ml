@@ -590,8 +590,6 @@ let create_transaction_for_miners adress value =
     begin
       let my_account = get_account_by_name s in
       let _, _, all_my_tr, my_output_tr, _, _ = get_tr_info s (get_public_key my_account.rsa_key) in
-      print_int (List.length all_my_tr);
-      print_newline();
       let account_balance = compute_account_balance s in
 
 
@@ -643,7 +641,7 @@ let create_transaction_for_miners adress value =
           lock mutex_new_transaction;
           new_transaction := new_tr :: !new_transaction;
           unlock mutex_new_transaction;
-          broadcast_miner !me.dns (fun m -> m) (Send_transaction new_tr)
+          broadcast_miner !me.dns (fun m -> m) (Send_transaction (Full, new_tr))
         end
       end
 
@@ -660,7 +658,6 @@ let show_account_info a =
   print_newline()
 
 let show_connect_account () =
-  print_int ((List.length !me.blockchain) - 1);
   match !me.lazy_part.connected_account with
   |None -> ()
   |Some s ->

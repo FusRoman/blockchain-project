@@ -215,7 +215,7 @@ let create_transaction adress value =
                 new_tr with
                 inputs = List.map (fun (input:Block.input_tr) -> {input with signature = signature}) new_tr.inputs
                 } in
-                send_msg (Send_transaction new_tr)
+                send_msg (Send_transaction (Lazy, new_tr))
               end
           end
         |_ -> ();

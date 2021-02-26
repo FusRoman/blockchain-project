@@ -15,7 +15,7 @@ type 'a serv_command =
 |New_block of int * int * block
 |Request_blockchain of int
 |Send_blockchain of block list
-|Send_transaction of transaction
+|Send_transaction of type_node * transaction
 (*
   Request_transaction permet de demander les transactions d'un compte d'un waller à un miner
     -adresse du compte

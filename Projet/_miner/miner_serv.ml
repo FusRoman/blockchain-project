@@ -251,6 +251,7 @@ let receive_msg sc =
                     blockchain = block :: !me.blockchain
                   } in
                   update_me new_me;
+                  new_transaction := [];
                   if not (verif_blockchain !me.blockchain) then
                     print_string "ERROOOOOOOOOOOOR !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
                   unlock mutex_new_bloc
@@ -286,12 +287,15 @@ let receive_msg sc =
 
           unlock mutex_new_bloc
         end
-      |Send_transaction tr ->
+      |Send_transaction (t_node, tr) ->
         begin
           lock mutex_new_transaction;
           new_transaction := tr :: !new_transaction;
           unlock mutex_new_transaction;
-          broadcast_miner !me.dns (fun m -> m) (Send_transaction tr)
+          match t_node with
+          |Full -> ()
+          |Lazy ->
+            broadcast_miner !me.dns (fun m -> m) (Send_transaction (Full, tr))
         end
     end;
 
